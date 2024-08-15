@@ -1,3 +1,5 @@
+origin: https://github.com/CeetronSolutions/opm-common
+
 # opm-common: Tools for Eclipse reservoir simulation files
 
 The Open Porous Media (OPM) software suite provides libraries and
