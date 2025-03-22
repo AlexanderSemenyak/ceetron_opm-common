@@ -18,31 +18,55 @@
 */
 
 #define BOOST_TEST_MODULE ScheduleIntegrationTests
-#include <math.h>
 
 #include <boost/test/unit_test.hpp>
 #include <boost/test/test_tools.hpp>
+#include <boost/version.hpp>
 
-#include <opm/input/eclipse/Deck/Deck.hpp>
-#include <opm/input/eclipse/Parser/Parser.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/EclipseGrid.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/FieldPropsManager.hpp>
 #include <opm/input/eclipse/EclipseState/Runspec.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/TableManager.hpp>
+
+#include <opm/input/eclipse/Python/Python.hpp>
+
+#include <opm/input/eclipse/Schedule/Events.hpp>
 #include <opm/input/eclipse/Schedule/Schedule.hpp>
 #include <opm/input/eclipse/Schedule/SummaryState.hpp>
+#include <opm/input/eclipse/Schedule/UDQ/UDQConfig.hpp>
+#include <opm/input/eclipse/Schedule/UDQ/UDQParams.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
 #include <opm/input/eclipse/Schedule/Well/WellConnections.hpp>
-#include <opm/input/eclipse/Schedule/Events.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellEconProductionLimits.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellFoamProperties.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellPolymerProperties.hpp>
+
 #include <opm/input/eclipse/Units/Units.hpp>
-#include <opm/input/eclipse/Python/Python.hpp>
+
+#include <opm/input/eclipse/Deck/Deck.hpp>
+#include <opm/input/eclipse/Parser/Parser.hpp>
+
 #include <opm/common/utility/TimeService.hpp>
+
+#include <memory>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 
 using namespace Opm;
 
+namespace {
 
-inline std::string pathprefix() {
+std::string pathprefix()
+{
+#if BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 < 71
+    return boost::unit_test::framework::master_test_suite().argv[2];
+#else
     return boost::unit_test::framework::master_test_suite().argv[1];
+#endif
 }
+
+} // Anonymous namespace
 
 BOOST_AUTO_TEST_CASE(CreateSchedule) {
     Parser parser;
@@ -237,7 +261,7 @@ BOOST_AUTO_TEST_CASE(WellTesting) {
 
         BOOST_CHECK( sched.getWell("W_1", 9).isInjector());
         {
-            SummaryState st(TimeService::now());
+            SummaryState st(TimeService::now(), sched.back().udq().params().undefinedValue());
             const auto controls = sched.getWell("W_1", 9).injectionControls(st);
             BOOST_CHECK_CLOSE(20000/Metric::Time ,  controls.surface_rate  , 0.001);
             BOOST_CHECK_CLOSE(200000/Metric::Time , controls.reservoir_rate, 0.001);
@@ -253,10 +277,10 @@ BOOST_AUTO_TEST_CASE(WellTesting) {
 
         BOOST_CHECK( Well::Status::OPEN == sched.getWell("W_1", 11).getStatus( ));
         BOOST_CHECK( Well::Status::OPEN == sched.getWell("W_1", 12).getStatus( ));
-        BOOST_CHECK( Well::Status::SHUT == sched.getWell("W_1", 13).getStatus( ));
+        BOOST_CHECK( Well::Status::OPEN == sched.getWell("W_1", 13).getStatus( ));
         BOOST_CHECK( Well::Status::OPEN == sched.getWell("W_1", 14).getStatus( ));
         {
-            SummaryState st(TimeService::now());
+            SummaryState st(TimeService::now(), sched.back().udq().params().undefinedValue());
             const auto controls = sched.getWell("W_1", 12).injectionControls(st);
             BOOST_CHECK(  controls.hasControl(Well::InjectorCMode::RATE ));
             BOOST_CHECK( !controls.hasControl(Well::InjectorCMode::RESV));
@@ -374,7 +398,7 @@ BOOST_AUTO_TEST_CASE( WellTestGroups ) {
     Runspec runspec (deck);
     auto python = std::make_shared<Python>();
     Schedule sched(deck,  grid , fp, runspec, python);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), runspec.udqParams().undefinedValue());
 
     BOOST_CHECK_EQUAL( 3U , sched.back().groups.size() );
     BOOST_CHECK( sched.back().groups.has( "INJ" ));
@@ -509,34 +533,39 @@ BOOST_AUTO_TEST_CASE(WellTestWGRUPCONWellPropertiesSet) {
 }
 
 
-BOOST_AUTO_TEST_CASE(TestDefaultedCOMPDATIJ) {
-    Parser parser;
-    const char * deckString = "\n\
-START\n\
-\n\
-10 MAI 2007 /\n\
-\n\
-GRID\n\
-PERMX\n\
-   9000*0.25 /\n\
-COPY \n\
-   PERMX PERMY /\n\
-   PERMX PERMZ /\n\
-/\n\
-SCHEDULE\n\
-WELSPECS \n\
-     'W1'        'OP'   11   21  3.33       'OIL'  7* /   \n\
-/\n\
-COMPDAT \n\
-     'W1'   2*    1    1      'OPEN'  1*     32.948      0.311   3047.839  2*         'X'     22.100 /\n\
-/\n";
-    auto deck =  parser.parseString(deckString);
-    auto python = std::make_shared<Python>();
+BOOST_AUTO_TEST_CASE(TestDefaultedCOMPDATIJ)
+{
+    const auto deck = Parser{}.parseString(R"(
+START
+
+10 MAI 2007 /
+
+GRID
+PERMX
+   9000*0.25 /
+COPY
+   PERMX PERMY /
+   PERMX PERMZ /
+/
+PORO
+  9000*0.3 /
+
+SCHEDULE
+WELSPECS
+     'W1'        'OP'   11   21  3.33       'OIL'  7* /
+/
+COMPDAT
+     'W1'   2*    1    1      'OPEN'  1*     32.948      0.311   3047.839  2*         'X'     22.100 /
+/
+END
+)");
+
     EclipseGrid grid(30,30,10);
-    TableManager table ( deck );
-    FieldPropsManager fp(deck, Phases{true, true, true}, grid, table);
-    Runspec runspec (deck);
-    Schedule sched(deck,  grid , fp, runspec, python);
+    const TableManager table (deck);
+    const FieldPropsManager fp(deck, Phases{true, true, true}, grid, table);
+    const Runspec runspec (deck);
+    const Schedule sched(deck, grid, fp, runspec, std::make_shared<Python>());
+
     const auto& connections = sched.getWell("W1", 0).getConnections();
     BOOST_CHECK_EQUAL( 10 , connections.get(0).getI() );
     BOOST_CHECK_EQUAL( 20 , connections.get(0).getJ() );
@@ -898,4 +927,3 @@ BOOST_AUTO_TEST_CASE(TestWellEvents) {
     BOOST_CHECK( sched[0].wellgroup_events().hasEvent( "W_1", ScheduleEvents::COMPLETION_CHANGE));
     BOOST_CHECK( sched[5].wellgroup_events().hasEvent( "W_1", ScheduleEvents::COMPLETION_CHANGE));
 }
-

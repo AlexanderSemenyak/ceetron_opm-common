@@ -20,16 +20,18 @@
 
 #include <opm/common/ErrorMacros.hpp>
 
-#include <iostream>
-#include <string>
+#include <algorithm>
+#include <filesystem>
 #include <getopt.h>
-#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
 
 static void printHelp() {
     std::cout << "\ncompareECL compares ECLIPSE files (restart (.RST), unified restart (.UNRST), initial (.INIT), summary (.SMRY), unified summary (.UNSMRY) or .RFT) and gridsizes (from .EGRID or .GRID file) from two simulations.\n"
               << "The program takes four arguments:\n\n"
-              << "1. Case number 1, reference case (full path without extension)\n"
-              << "2. Case number 2, test case (full path without extension)\n"
+              << "1. Case number 1, reference case (path without extension)\n"
+              << "2. Case number 2, test case (path without extension)\n"
               << "3. Absolute tolerance\n"
               << "4. Relative tolerance (between 0 and 1)\n\n"
               << "In addition, the program takes these options (which must be given before the arguments):\n\n"
@@ -51,6 +53,7 @@ static void printHelp() {
               << "    -t SMRY  \t Compare two cases consistent of (unified) summary files.\n"
               << "    -t RSM   \t Compare RSM file against a summary file.\n"
               << "-x Allow extra keywords in case number 2. These additional keywords (not found in case number1) will be ignored in the comparison.\n"
+              << "-y Allow extra keywords in both cases. These additional keywords will be ignored in the comparison.\n"
               << "\nExample usage of the program: \n\n"
               << "compareECL -k PRESSURE <path to first casefile> <path to second casefile> 1e-3 1e-5\n"
               << "compareECL -t INIT -k PORO <path to first casefile> <path to second casefile> 1e-3 1e-5\n"
@@ -68,14 +71,11 @@ static bool has_result_files(const std::string& rootName)
 {
     std::vector<std::string> extList = { "EGRID", "INIT", "UNRST", "SMSPEC", "RFT" };
 
-    for (const auto& ext : extList) {
-        std::ifstream is(rootName + '.' + ext);
-        if (is) {
-            return true;
-        }
-    }
-
-    return false;
+    return std::any_of(extList.begin(), extList.end(),
+                       [&rootName](const auto& ext)
+                       {
+                           return std::filesystem::exists(rootName + '.' + ext);
+                       });
 }
 
 //------------------------------------------------//
@@ -89,15 +89,16 @@ int main(int argc, char** argv) {
     bool specificReportStepNumber  = false;
     bool specificFileType          = false;
     bool throwOnError              = true;
-    bool restartFile              = false;
+    bool restartFile               = false;
     bool acceptExtraKeywords       = false;
+    bool acceptExtraKeywordsBoth   = false;
     bool analysis                  = false;
     char* keyword                  = nullptr;
     int c                          = 0;
     int reportStepNumber           = -1;
     std::string fileTypeString;
 
-    while ((c = getopt(argc, argv, "hik:alnpt:Rr:xd")) != -1) {
+    while ((c = getopt(argc, argv, "hik:alnpt:Rr:xdy")) != -1) {
         switch (c) {
         case 'a':
             analysis = true;
@@ -138,6 +139,9 @@ int main(int argc, char** argv) {
             break;
         case 'x':
             acceptExtraKeywords = true;
+            break;
+        case 'y':
+            acceptExtraKeywordsBoth = true;
             break;
         case '?':
             if (optopt == 'k' || optopt == 'm' || optopt == 's') {
@@ -183,6 +187,7 @@ int main(int argc, char** argv) {
         comparator.throwOnErrors(throwOnError);
         comparator.doAnalysis(analysis);
         comparator.setAcceptExtraKeywords(acceptExtraKeywords);
+        comparator.setAcceptExtraKeywordsBoth(acceptExtraKeywordsBoth);
 
         if (integrationTest) {
             comparator.setIntegrationTest(true);
@@ -201,7 +206,7 @@ int main(int argc, char** argv) {
         }
 
         if (specificKeyword) {
-            comparator.compareSpesificKeyword(keyword);
+            comparator.compareSpecificKeyword(keyword);
         }
 
         if (specificReportStepNumber) {
@@ -251,8 +256,12 @@ int main(int argc, char** argv) {
             comparator.results_rft();
         }
 
-        if (comparator.getNoErrors() > 0)
-            OPM_THROW(std::runtime_error, comparator.getNoErrors() << " errors encountered in comparisons.");
+        if (comparator.getNoErrors() > 0) {
+            std::ostringstream str;
+            str << comparator.getNoErrors()
+                << " errors encountered in comparisons.";
+            OPM_THROW(std::runtime_error, str.str());
+        }
     }
 
     catch (const std::exception& e) {

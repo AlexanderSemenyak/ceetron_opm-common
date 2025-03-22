@@ -96,12 +96,6 @@ struct GravityTable : public FlatTableWithCopy<GRAVITYRecord>
     {
         return GravityTable({{1.0, 2.0, 3.0}});
     }
-
-    template <class Serializer>
-    void serializeOp(Serializer& serializer)
-    {
-        FlatTableWithCopy::serializeOp(serializer);
-    }
 };
 
 struct DENSITYRecord {
@@ -136,12 +130,6 @@ struct DensityTable : public FlatTableWithCopy<DENSITYRecord>
     static DensityTable serializationTestObject()
     {
         return DensityTable({{1.0, 2.0, 3.0}});
-    }
-
-    template <class Serializer>
-    void serializeOp(Serializer& serializer)
-    {
-        FlatTableWithCopy::serializeOp(serializer);
     }
 };
 
@@ -191,6 +179,63 @@ struct DiffCoeffTable : public FlatTable< DiffCoeffRecord > {
     }
 };
 
+
+struct DiffCoeffWatRecord {
+    static constexpr std::size_t size = 2;
+
+    // hardcoded to 2 components
+    double co2_in_water;
+    double h2o_in_water;
+
+    bool operator==(const DiffCoeffWatRecord& data) const {
+        return co2_in_water == data.co2_in_water &&
+               h2o_in_water == data.h2o_in_water;}
+
+    template<class Serializer>
+    void serializeOp(Serializer& serializer)
+    {
+        serializer(co2_in_water);
+        serializer(h2o_in_water);
+    }
+};
+
+struct DiffCoeffWatTable : public FlatTable< DiffCoeffWatRecord > {
+    using FlatTable< DiffCoeffWatRecord >::FlatTable;
+
+    static DiffCoeffWatTable serializationTestObject()
+    {
+        return DiffCoeffWatTable({{1.0, 2.0}});
+    }
+};
+
+struct DiffCoeffGasRecord {
+    static constexpr std::size_t size = 2;
+
+    // hardcoded to 2 components
+    double co2_in_gas;
+    double h2o_in_gas;
+
+    bool operator==(const DiffCoeffGasRecord& data) const {
+        return co2_in_gas == data.co2_in_gas &&
+               h2o_in_gas == data.h2o_in_gas;}
+
+    template<class Serializer>
+    void serializeOp(Serializer& serializer)
+    {
+        serializer(co2_in_gas);
+        serializer(h2o_in_gas);
+    }
+};
+
+struct DiffCoeffGasTable : public FlatTable< DiffCoeffGasRecord > {
+    using FlatTable< DiffCoeffGasRecord >::FlatTable;
+
+    static DiffCoeffGasTable serializationTestObject()
+    {
+        return DiffCoeffGasTable({{1.0, 2.0}});
+    }
+};
+
 struct PVTWRecord {
     static constexpr std::size_t size = 5;
 
@@ -229,12 +274,6 @@ struct PvtwTable : public FlatTableWithCopy<PVTWRecord>
     {
         return PvtwTable({{1.0, 2.0, 3.0, 4.0, 5.0}});
     }
-
-    template <class Serializer>
-    void serializeOp(Serializer& serializer)
-    {
-        FlatTableWithCopy::serializeOp(serializer);
-    }
 };
 
 struct ROCKRecord {
@@ -256,8 +295,11 @@ struct ROCKRecord {
     }
 };
 
-struct RockTable : public FlatTable< ROCKRecord > {
-    using FlatTable< ROCKRecord >::FlatTable;
+struct RockTable : public FlatTableWithCopy<ROCKRecord>
+{
+    RockTable() = default;
+    explicit RockTable(const DeckKeyword& kw);
+    explicit RockTable(std::initializer_list<ROCKRecord> records);
 
     static RockTable serializationTestObject()
     {

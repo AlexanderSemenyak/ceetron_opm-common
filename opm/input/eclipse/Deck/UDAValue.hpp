@@ -20,10 +20,9 @@
 #ifndef UDA_VALUE_HPP
 #define UDA_VALUE_HPP
 
-#include <stdexcept>
-#include <vector>
 #include <string>
 #include <iosfwd>
+#include <optional>
 
 #include <opm/input/eclipse/Units/Dimension.hpp>
 
@@ -54,6 +53,12 @@ public:
     static UDAValue serializationTestObject();
 
     /*
+     * The *_value_or functions will throw an exception in case of non-zero string value
+     */
+    double raw_value_or(const double raw_default_value) const;
+    double SI_value_or(const double SI_default_value) const;
+
+    /*
       The get<double>() and get<std::string>() methods will throw an
       exception if the internal type and the template parameter disagree.
     */
@@ -70,22 +75,24 @@ public:
     //epsilon limit  = 1.E-20  (~= 0.)
     double epsilonLimit() const;
 
+    bool is_defined() const;
     template<typename T>
     bool is() const;
 
     void assert_numeric() const;
     void assert_numeric(const std::string& error_msg) const;
+    void assert_maybe_numeric() const;
     const Dimension& get_dim() const;
+    void set_dim(const Dimension& new_dim);
 
     bool operator==(const UDAValue& other) const;
     bool operator!=(const UDAValue& other) const;
 
-    bool is_numeric() const { return numeric_value; }
+    bool is_numeric() const { return double_value.has_value(); }
 
     template<class Serializer>
     void serializeOp(Serializer& serializer)
     {
-        serializer(numeric_value);
         serializer(double_value);
         serializer(string_value);
         serializer(dim);
@@ -95,8 +102,7 @@ public:
 
 
 private:
-    bool numeric_value;
-    double double_value;
+    std::optional<double> double_value;
     std::string string_value;
 
     Dimension dim;

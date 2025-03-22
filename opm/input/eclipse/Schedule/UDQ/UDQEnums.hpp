@@ -70,6 +70,11 @@ enum class UDQVarType
     BLOCK_VAR = 7,
     WELL_VAR = 8,
     GROUP_VAR = 9,
+    TABLE_LOOKUP = 10,
+
+    // -------------------------------------------------------------------------
+    // Implementation helper.  Must be last enumerator.
+    NumTypes,
 };
 
 enum class UDQTokenType
@@ -124,6 +129,8 @@ enum class UDQTokenType
     scalar_func_prod = 46,
     //
     table_lookup = 47,
+    table_lookup_start = 48,
+    table_lookup_end = 49,
     //
     end = 100,
 };
@@ -152,6 +159,7 @@ enum class UDAControl
     WCONPROD_RESV,
     WCONPROD_BHP,
     WCONPROD_THP,
+    WCONPROD_LIFT,
     //
     WCONINJE_RATE,
     WCONINJE_RESV,

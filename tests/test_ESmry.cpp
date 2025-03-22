@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(TestESmry_1) {
     const auto dates = smry1.dates();
     for (std::size_t index = 0; index < dates.size(); index++) {
         auto diff = dates[index]- smry1.startdate();
-        auto diff_seconds = std::chrono::duration_cast<std::chrono::seconds>(diff).count();
+        auto diff_seconds = std::chrono::duration<double>(diff).count();
         BOOST_CHECK_CLOSE(diff_seconds, 24*3600 * smryVect[index], 1e-6);
     }
 
@@ -455,10 +455,9 @@ BOOST_AUTO_TEST_CASE(Test_all_available) {
     std::vector<std::string> units = { "DAYS", "YEARS", "SM3/SM3", "SM3/DAY",
         "BARSA", "BARSA", "SM3/DAY", "SM3/DAY"};
 
-    std::vector<int> nums (8, 0);
-
     WorkArea work;
     {
+        const std::vector<int> nums (8, 0);
         Opm::EclIO::EclOutput smspec1("TMP1.SMSPEC", false);
         smspec1.write<int>("INTEHEAD", {1,100});
         std::vector<std::string> restart (9,"");

@@ -17,98 +17,172 @@
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <iostream>
-#include <utility>
+#include <opm/msim/msim.hpp>
 
-#include <opm/output/eclipse/Inplace.hpp>
-#include <opm/output/eclipse/EclipseIO.hpp>
-#include <opm/output/eclipse/RestartValue.hpp>
-#include <opm/output/eclipse/Summary.hpp>
+#include <opm/output/data/Groups.hpp>
 #include <opm/output/data/Solution.hpp>
 #include <opm/output/data/Wells.hpp>
-#include <opm/output/data/Groups.hpp>
+#include <opm/output/eclipse/EclipseIO.hpp>
+#include <opm/output/eclipse/Inplace.hpp>
+#include <opm/output/eclipse/RestartValue.hpp>
+#include <opm/output/eclipse/Summary.hpp>
+
 #include <opm/input/eclipse/Python/Python.hpp>
 
+#include <opm/input/eclipse/EclipseState/EclipseState.hpp>
+#include <opm/input/eclipse/EclipseState/Runspec.hpp>
+
 #include <opm/input/eclipse/Schedule/Action/ActionContext.hpp>
-#include <opm/input/eclipse/Schedule/UDQ/UDQState.hpp>
+#include <opm/input/eclipse/Schedule/Action/ActionResult.hpp>
+#include <opm/input/eclipse/Schedule/Action/Actions.hpp>
+#include <opm/input/eclipse/Schedule/Action/SimulatorUpdate.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQConfig.hpp>
+#include <opm/input/eclipse/Schedule/UDQ/UDQParams.hpp>
+#include <opm/input/eclipse/Schedule/UDQ/UDQState.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellMatcher.hpp>
 #include <opm/input/eclipse/Schedule/Well/WellTestState.hpp>
+
+#include <opm/common/utility/TimeService.hpp>
+
 #include <opm/input/eclipse/Parser/Parser.hpp>
 #include <opm/input/eclipse/Parser/ParseContext.hpp>
 #include <opm/input/eclipse/Parser/ErrorGuard.hpp>
-#include <opm/msim/msim.hpp>
+
+#include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <functional>
+#include <memory>
+#include <string>
+#include <utility>
+
+namespace {
+    std::function<std::unique_ptr<Opm::RegionSetMatcher>()>
+    createRegionSetMatcherFactory(const Opm::EclipseState& es)
+    {
+        return {
+            [es = std::cref(es)]() {
+                return std::make_unique<Opm::RegionSetMatcher>
+                    (es.get().fipRegionStatistics());
+            }
+        };
+    }
+} // Anonymous namespace
 
 namespace Opm {
 
+std::shared_ptr<Python> msim::python = std::make_shared<Python>();
+
 msim::msim(const EclipseState& state_arg, const Schedule& schedule_arg)
-    : state(state_arg)
+    : state   (state_arg)
     , schedule(schedule_arg)
-    , st(TimeService::from_time_t(this->schedule.getStartTime()))
+    , st { TimeService::from_time_t(this->schedule.getStartTime()),
+           state.runspec().udqParams().undefinedValue() }
 {}
 
-void msim::run(EclipseIO& io, bool report_only) {
+
+void msim::run(EclipseIO& io, bool report_only)
+{
     const double week = 7 * 86400;
+
     data::Solution sol;
     UDQState udq_state(this->schedule.getUDQConfig(0).params().undefinedValue());
     WellTestState wtest_state;
-    Python python;
 
     io.writeInitial();
     for (size_t report_step = 1; report_step < schedule.size(); report_step++) {
         data::Wells well_data;
         data::GroupAndNetworkValues group_nwrk_data;
-        if (report_only)
+
+        if (report_only) {
             run_step(wtest_state, udq_state, sol, well_data, group_nwrk_data, report_step, io);
+        }
         else {
             double time_step = std::min(week, 0.5*schedule.stepLength(report_step - 1));
-            run_step(wtest_state, udq_state, sol, well_data, group_nwrk_data, report_step, time_step, io);
+
+            run_step(wtest_state, udq_state,
+                     sol, well_data, group_nwrk_data,
+                     report_step, time_step, io);
         }
-        auto sim_time = TimeService::from_time_t( schedule.simTime(report_step) );
+
+        const auto sim_time = TimeService::from_time_t(schedule.simTime(report_step));
         post_step(sol, well_data, group_nwrk_data, report_step, sim_time);
+
         const auto& exit_status = schedule.exitStatus();
-        if (exit_status.has_value())
+        if (exit_status.has_value()) {
             return;
+        }
     }
 }
 
-UDAValue msim::uda_val() {
- return UDAValue();
+
+UDAValue msim::uda_val()
+{
+    return UDAValue();
 }
 
 
-void msim::post_step(data::Solution& /* sol */, data::Wells& /* well_data */, data::GroupAndNetworkValues& /* grp_nwrk_data */, size_t report_step, const time_point& sim_time) {
+void msim::post_step(data::Solution& /* sol */,
+                     data::Wells& /* well_data */,
+                     data::GroupAndNetworkValues& /* grp_nwrk_data */,
+                     const size_t report_step,
+                     const time_point& sim_time)
+{
     const auto& actions = this->schedule[report_step].actions.get();
-    if (actions.empty())
+    if (actions.empty()) {
         return;
+    }
 
-    Action::Context context( this->st , this->schedule[report_step].wlist_manager.get());
+    const auto context = Action::Context {
+        this->st, this->schedule[report_step].wlist_manager.get()
+    };
 
     for (const auto& action : actions.pending(this->action_state, std::chrono::system_clock::to_time_t(sim_time))) {
-        auto result = action->eval(context);
-        if (result)
-            this->schedule.applyAction(report_step, *action, result.wells(), {});
+        const auto result = action->eval(context);
+        if (result.conditionSatisfied()) {
+            this->schedule.applyAction(report_step, *action, result.matches(),
+                                       std::unordered_map<std::string,double>{});
+        }
     }
 
-    for (const auto& pyaction : actions.pending_python(this->action_state))
-        this->schedule.runPyAction(report_step, *pyaction, this->action_state, this->state, this->st);
+    for (const auto& pyaction : actions.pending_python(this->action_state)) {
+        this->schedule.runPyAction(report_step, *pyaction,
+                                   this->action_state, this->state, this->st);
+    }
 }
 
 
-
-void msim::run_step(WellTestState& wtest_state, UDQState& udq_state, data::Solution& sol, data::Wells& well_data, data::GroupAndNetworkValues& grp_nwrk_data, size_t report_step, EclipseIO& io) {
-    this->run_step(wtest_state, udq_state, sol, well_data, grp_nwrk_data, report_step, schedule.stepLength(report_step - 1), io);
+void msim::run_step(const WellTestState& wtest_state,
+                    UDQState& udq_state,
+                    data::Solution& sol,
+                    data::Wells& well_data,
+                    data::GroupAndNetworkValues& grp_nwrk_data,
+                    const size_t report_step,
+                    EclipseIO& io)
+{
+    this->run_step(wtest_state, udq_state, sol, well_data, grp_nwrk_data,
+                   report_step, schedule.stepLength(report_step - 1), io);
 }
 
+void msim::run_step(const WellTestState& wtest_state,
+                    UDQState& udq_state,
+                    data::Solution& sol,
+                    data::Wells& well_data,
+                    data::GroupAndNetworkValues& group_nwrk_data,
+                    const size_t report_step,
+                    const double dt,
+                    EclipseIO& io)
+{
+    const double start_time = this->schedule.seconds(report_step - 1);
+    const double end_time = this->schedule.seconds(report_step);
 
-void msim::run_step(WellTestState& wtest_state, UDQState& udq_state, data::Solution& sol, data::Wells& well_data, data::GroupAndNetworkValues& group_nwrk_data, size_t report_step, double dt, EclipseIO& io) {
-    double start_time = this->schedule.seconds(report_step - 1);
-    double end_time = this->schedule.seconds(report_step);
     double seconds_elapsed = start_time;
-
     while (seconds_elapsed < end_time) {
         double time_step = dt;
-        if ((seconds_elapsed + time_step) > end_time)
+        if ((seconds_elapsed + time_step) > end_time) {
             time_step = end_time - seconds_elapsed;
+        }
 
         this->simulate(sol, well_data, group_nwrk_data, report_step, seconds_elapsed, time_step);
 
@@ -118,13 +192,19 @@ void msim::run_step(WellTestState& wtest_state, UDQState& udq_state, data::Solut
                           report_step,
                           seconds_elapsed,
                           well_data,
+                          /* wbp = */ {},
                           group_nwrk_data,
-                          {},
-                          {},
-                          {},
-                          {});
+                          /* sing_values = */ {},
+                          /* initial_inplace = */ {},
+                          /* inplace = */ {});
 
-        this->schedule.getUDQConfig( report_step ).eval(report_step, schedule.wellMatcher(report_step), this->st, udq_state);
+        this->schedule.getUDQConfig(report_step - 1)
+            .eval(report_step,
+                  this->schedule.wellMatcher(report_step),
+                  this->schedule.segmentMatcherFactory(report_step),
+                  createRegionSetMatcherFactory(this->state),
+                  this->st,
+                  udq_state);
 
         this->output(wtest_state,
                      udq_state,
@@ -139,9 +219,18 @@ void msim::run_step(WellTestState& wtest_state, UDQState& udq_state, data::Solut
 }
 
 
-
-void msim::output(WellTestState& wtest_state, const UDQState& udq_state, size_t report_step, bool substep, double seconds_elapsed, const data::Solution& sol, const data::Wells& well_data, const data::GroupAndNetworkValues& group_nwrk_data, EclipseIO& io) {
+void msim::output(const WellTestState& wtest_state,
+                  const UDQState& udq_state,
+                  const size_t report_step,
+                  const bool substep,
+                  const double seconds_elapsed,
+                  const data::Solution& sol,
+                  const data::Wells& well_data,
+                  const data::GroupAndNetworkValues& group_nwrk_data,
+                  EclipseIO& io)
+{
     RestartValue value(sol, well_data, group_nwrk_data, {});
+
     io.writeTimeStep(this->action_state,
                      wtest_state,
                      this->st,
@@ -153,7 +242,13 @@ void msim::output(WellTestState& wtest_state, const UDQState& udq_state, size_t 
 }
 
 
-void msim::simulate(data::Solution& sol, data::Wells& well_data, data::GroupAndNetworkValues& /* group_nwrk_data */, size_t report_step, double seconds_elapsed, double time_step) {
+void msim::simulate(data::Solution& sol,
+                    data::Wells& well_data,
+                    data::GroupAndNetworkValues& /* group_nwrk_data */,
+                    const size_t report_step,
+                    const double seconds_elapsed,
+                    const double time_step)
+{
     for (const auto& sol_pair : this->solutions) {
         auto func = sol_pair.second;
         func(this->state, this->schedule, sol, report_step, seconds_elapsed + time_step);
@@ -169,10 +264,13 @@ void msim::simulate(data::Solution& sol, data::Wells& well_data, data::GroupAndN
             auto rate = rate_pair.first;
             auto func = rate_pair.second;
 
-            if (well_open)
-                well.rates.set(rate, func(this->state, this->schedule, this->st, sol, report_step, seconds_elapsed + time_step));
-            else
+            if (well_open) {
+                well.rates.set(rate, func(this->state, this->schedule, this->st,
+                                          sol, report_step, seconds_elapsed + time_step));
+            }
+            else {
                 well.rates.set(rate, 0.0);
+            }
         }
 
         // This is complete bogus; a temporary fix to pass an assert() in the
@@ -182,16 +280,17 @@ void msim::simulate(data::Solution& sol, data::Wells& well_data, data::GroupAndN
 }
 
 
-void msim::well_rate(const std::string& well, data::Rates::opt rate, std::function<well_rate_function> func) {
+void msim::well_rate(const std::string& well,
+                     data::Rates::opt rate,
+                     std::function<well_rate_function> func)
+{
     this->well_rates[well][rate] = func;
 }
 
 
-void msim::solution(const std::string& field, std::function<solution_function> func) {
+void msim::solution(const std::string& field, std::function<solution_function> func)
+{
     this->solutions[field] = func;
 }
 
-
-}
-
-
+} // namespace Opm

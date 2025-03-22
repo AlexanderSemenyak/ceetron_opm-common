@@ -9,12 +9,14 @@
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
 
 #include <opm/input/eclipse/Schedule/Schedule.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
 
 #include <fmt/format.h>
 #include <pybind11/stl.h>
 #include <pybind11/chrono.h>
 #include "export.hpp"
 
+#include <python/cxx/OpmCommonPythonDoc.hpp>
 
 namespace {
 
@@ -52,11 +54,15 @@ namespace {
         return system_clock::from_time_t(local_time);
     }
 
-    const Well& get_well( const Schedule& sch, const std::string& name, const size_t& timestep ) try {
-        return sch.getWell( name, timestep );
+    const Well& get_well( const Schedule& sch, const std::string& name, const size_t& report_step ) try {
+        return sch.getWell( name, report_step );
     } catch( const std::invalid_argument& e ) {
         throw py::key_error( name );
     }
+
+    double zero_if_undefined(const UDAValue& val) {
+        return val.is_numeric() ? val.get<double>() : 0.0;
+    };
 
     std::map<std::string, double> get_production_properties(
         const Schedule& sch, const std::string& well_name, const size_t& report_step)
@@ -70,14 +76,14 @@ namespace {
         if (well->isProducer()) {
             auto& prod_prop = well->getProductionProperties();
             return {
-                { "oil_rate", prod_prop.OilRate.get<double>() },
-                { "gas_rate", prod_prop.GasRate.get<double>() },
-                { "water_rate", prod_prop.WaterRate.get<double>() },
-                { "liquid_rate", prod_prop.LiquidRate.get<double>() },
-                { "resv_rate", prod_prop.ResVRate.get<double>() },
-                { "bhp_target", prod_prop.BHPTarget.get<double>() },
-                { "thp_target", prod_prop.THPTarget.get<double>() },
-                { "alq_value", prod_prop.ALQValue.get<double>() },
+                { "oil_rate", zero_if_undefined(prod_prop.OilRate) },
+                { "gas_rate", zero_if_undefined(prod_prop.GasRate) },
+                { "water_rate", zero_if_undefined(prod_prop.WaterRate) },
+                { "liquid_rate", zero_if_undefined(prod_prop.LiquidRate) },
+                { "resv_rate", zero_if_undefined(prod_prop.ResVRate) },
+                { "bhp_target", zero_if_undefined(prod_prop.BHPTarget) },
+                { "thp_target", zero_if_undefined(prod_prop.THPTarget) },
+                { "alq_value", zero_if_undefined(prod_prop.ALQValue) },
             };
         }
         else {
@@ -98,10 +104,10 @@ namespace {
         if (well->isInjector()) {
             auto& inj_prop = well->getInjectionProperties();
             return {
-                { "surf_inj_rate", inj_prop.surfaceInjectionRate.get<double>() },
-                { "resv_inj_rate", inj_prop.reservoirInjectionRate.get<double>() },
-                { "bhp_target", inj_prop.BHPTarget.get<double>() },
-                { "thp_target", inj_prop.THPTarget.get<double>() },
+                { "surf_inj_rate", zero_if_undefined(inj_prop.surfaceInjectionRate) },
+                { "resv_inj_rate", zero_if_undefined(inj_prop.reservoirInjectionRate) },
+                { "bhp_target", zero_if_undefined(inj_prop.BHPTarget) },
+                { "thp_target", zero_if_undefined(inj_prop.THPTarget) },
             };
         }
         else {
@@ -117,7 +123,7 @@ namespace {
         return datetime(s.posixEndTime());
     }
 
-    std::vector<system_clock::time_point> get_timesteps( const Schedule& s ) {
+    std::vector<system_clock::time_point> get_reportsteps( const Schedule& s ) {
         std::vector< system_clock::time_point > v;
 
         for( size_t i = 0; i < s.size(); ++i )
@@ -126,10 +132,10 @@ namespace {
         return v;
     }
 
-    std::vector<Group> get_groups( const Schedule& sch, size_t timestep ) {
+    std::vector<Group> get_groups( const Schedule& sch, size_t report_step ) {
         std::vector< Group > groups;
         for( const auto& group_name : sch.groupNames())
-            groups.push_back( sch.getGroup(group_name, timestep) );
+            groups.push_back( sch.getGroup(group_name, report_step) );
 
         return groups;
     }
@@ -138,30 +144,37 @@ namespace {
         return sch.hasWell( wellName );
     }
 
-    const Group& get_group(const ScheduleState& st, const std::string& group_name) {
-        return st.groups.get(group_name);
+    const ScheduleState& getitem(const Schedule& sch, std::size_t report_step) {
+        return sch[report_step];
     }
 
-
-    const ScheduleState& getitem(const Schedule& sch, std::size_t index) {
-        return sch[index];
-    }
-
-    void insert_keywords(
-        Schedule& sch,
-        const std::string& deck_string,
-        std::size_t index,
-        const UnitSystem& unit_system
-    )
+    std::vector<std::unique_ptr<DeckKeyword>> parseKeywords(const std::string& deck_string, const UnitSystem& unit_system)
     {
         Parser parser;
         std::string str {unit_system.deck_name() + "\n\n" + deck_string};
         auto deck = parser.parseString(str);
-        std::vector<DeckKeyword*> keywords;
+        std::vector<std::unique_ptr<DeckKeyword>> keywords;
         for (auto &keyword : deck) {
-            keywords.push_back(&keyword);
+            keywords.push_back(std::make_unique<DeckKeyword>(keyword));
         }
-        sch.applyKeywords(keywords, index);
+        return keywords;
+    }
+    void insert_keywords(Schedule& sch, const std::string& deck_string, std::size_t report_step, const UnitSystem& unit_system)
+    {
+        auto kws = parseKeywords(deck_string, unit_system);
+        sch.applyKeywords(kws, report_step);
+    }
+
+    void insert_keywords(Schedule& sch, const std::string& deck_string, std::size_t report_step)
+    {
+        auto kws = parseKeywords(deck_string,sch.getUnits());
+        sch.applyKeywords(kws, report_step);
+    }
+
+    void insert_keywords(Schedule& sch, const std::string& deck_string)
+    {
+        auto kws = parseKeywords(deck_string,sch.getUnits());
+        sch.applyKeywords(kws);
     }
 
     // NOTE: this overload does currently not work, see PR #2833. The plan
@@ -169,15 +182,14 @@ namespace {
     //  above taking a deck_string (std::string) instead of a list of DeckKeywords
     //  has to be used instead.
     void insert_keywords(
-        Schedule& sch, py::list& deck_keywords, std::size_t index)
+        Schedule& sch, py::list& deck_keywords, std::size_t report_step)
     {
-        Parser parser;
-        std::vector<DeckKeyword*> keywords;
+        std::vector<std::unique_ptr<DeckKeyword>> keywords;
         for (py::handle item : deck_keywords) {
             DeckKeyword &keyword = item.cast<DeckKeyword&>();
-            keywords.push_back(&keyword);
+            keywords.push_back(std::make_unique<DeckKeyword>(keyword));
         }
-        sch.applyKeywords(keywords, index);
+        sch.applyKeywords(keywords, report_step);
     }
 }
 
@@ -185,11 +197,7 @@ namespace {
 
 void python::common::export_Schedule(py::module& module) {
 
-
-    py::class_<ScheduleState>(module, "ScheduleState")
-        .def_property_readonly("nupcol", py::overload_cast<>(&ScheduleState::nupcol, py::const_))
-        .def("group", &get_group, ref_internal);
-
+    using namespace Opm::Common::DocStrings;
 
     // Note: In the below class we use std::shared_ptr as the holder type, see:
     //
@@ -198,30 +206,33 @@ void python::common::export_Schedule(py::module& module) {
     // this makes it possible to share the returned object with e.g. and
     //   opm.simulators.BlackOilSimulator Python object
     //
-    py::class_< Schedule, std::shared_ptr<Schedule> >( module, "Schedule")
-    .def(py::init<const Deck&, const EclipseState& >())
-    .def("_groups", &get_groups )
-    .def_property_readonly( "start",  &get_start_time )
-    .def_property_readonly( "end",    &get_end_time )
-    .def_property_readonly( "timesteps", &get_timesteps )
-    .def("__len__", &Schedule::size)
-    .def("__getitem__", &getitem)
-    .def( "shut_well", &Schedule::shut_well)
-    .def( "open_well", &Schedule::open_well)
-    .def( "stop_well", &Schedule::stop_well)
-    .def( "get_wells", &Schedule::getWells)
-    .def( "get_injection_properties", &get_injection_properties, py::arg("well_name"), py::arg("report_step"))
-    .def( "get_production_properties", &get_production_properties, py::arg("well_name"), py::arg("report_step"))
-    .def("well_names", py::overload_cast<const std::string&>(&Schedule::wellNames, py::const_))
-    .def( "get_well", &get_well)
-    .def( "insert_keywords",
-        py::overload_cast<Schedule&, py::list&, std::size_t>(&insert_keywords),
-        py::arg("keywords"), py::arg("step"))
-    .def( "insert_keywords",
-        py::overload_cast<
-               Schedule&, const std::string&, std::size_t, const UnitSystem&
-           >(&insert_keywords),
-        py::arg("data"), py::arg("step"), py::arg("unit_system"))
-    .def( "__contains__", &has_well );
-
+    py::class_< Schedule, std::shared_ptr<Schedule> >( module, "Schedule", ScheduleClass_docstring)
+    .def(py::init<const Deck&, const EclipseState& >(), py::arg("deck"), py::arg("eclipse_state"))
+    .def("_groups", &get_groups, py::arg("report_step"), Schedule_groups_docstring)
+    .def_property_readonly("start", &get_start_time, Schedule_start_docstring)
+    .def_property_readonly("end", &get_end_time, Schedule_end_docstring)
+    .def_property_readonly("timesteps", [](const Schedule& self) {
+        py::print("The property 'timesteps' is deprecated, since the name is misleading. This actually returns the report steps, so use 'reportsteps' instead!");
+        return get_reportsteps(self);
+    }) // Deprecated since the name is misleading, this function actually returns the report steps
+    .def_property_readonly("reportsteps", &get_reportsteps, Schedule_reportsteps_docstring)
+    .def("__len__", &Schedule::size, Schedule_len_docstring)
+    .def("__getitem__", &getitem, py::arg("report_step"), Schedule_getitem_docstring)
+    .def("shut_well", py::overload_cast<const std::string&, std::size_t>(&Schedule::shut_well), py::arg("well_name"), py::arg("step"), Schedule_shut_well_well_name_step_docstring)
+    .def("shut_well", py::overload_cast<const std::string&>(&Schedule::shut_well), py::arg("well_name"), Schedule_shut_well_well_name_docstring)
+    .def("open_well", py::overload_cast<const std::string&, std::size_t>(&Schedule::open_well), py::arg("well_name"), py::arg("step"), Schedule_open_well_well_name_step_docstring)
+    .def("open_well", py::overload_cast<const std::string&>(&Schedule::open_well), py::arg("well_name"), Schedule_open_well_well_name_docstring)
+    .def("stop_well", py::overload_cast<const std::string&, std::size_t>(&Schedule::stop_well), py::arg("well_name"), py::arg("step"), Schedule_stop_well_well_name_step_docstring)
+    .def("stop_well", py::overload_cast<const std::string&>(&Schedule::stop_well), py::arg("well_name"), Schedule_stop_well_well_name_docstring)
+    .def("get_wells", &Schedule::getWells, py::arg("report_step"), Schedule_get_wells_docstring)
+    .def("get_injection_properties", &get_injection_properties, py::arg("well_name"), py::arg("report_step"), Schedule_get_injection_properties_docstring)
+    .def("get_production_properties", &get_production_properties, py::arg("well_name"), py::arg("report_step"), Schedule_get_production_properties_docstring)
+    .def("well_names", py::overload_cast<const std::string&>(&Schedule::wellNames, py::const_), py::arg("well_name_pattern"), Schedule_well_names_docstring)
+    .def("get_well", &get_well, py::arg("well_name"), py::arg("report_step"), Schedule_get_well_docstring)
+    .def("insert_keywords", py::overload_cast<Schedule&, py::list&, std::size_t>(&insert_keywords), py::arg("keywords"), py::arg("step"), Schedule_insert_keywords_list_docstring)
+    .def("insert_keywords", py::overload_cast<Schedule&, const std::string&, std::size_t, const UnitSystem&>(&insert_keywords), py::arg("data"), py::arg("step"), py::arg("unit_system"), Schedule_insert_keywords_data_step_unit_system_docstring)
+    .def("insert_keywords", py::overload_cast<Schedule&, const std::string&, std::size_t>(&insert_keywords), py::arg("data"), py::arg("step"), Schedule_insert_keywords_data_step_docstring)
+    .def("insert_keywords", py::overload_cast<Schedule&, const std::string&>(&insert_keywords),py::arg("data"), Schedule_insert_keywords_data_docstring)
+    .def("__contains__", &has_well, py::arg("well_name"), Schedule_contains_docstring)
+    ;
 }

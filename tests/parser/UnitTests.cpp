@@ -19,14 +19,21 @@
 
 #define BOOST_TEST_MODULE UnitTests
 
+#include <boost/test/unit_test.hpp>
+
 #include <opm/input/eclipse/Units/UnitSystem.hpp>
+
+#include <opm/input/eclipse/Schedule/UDQ/UDQEnums.hpp>
+
 #include <opm/input/eclipse/Units/Dimension.hpp>
 #include <opm/input/eclipse/Units/Units.hpp>
 
-#include <boost/test/unit_test.hpp>
-
+#include <array>
 #include <memory>
 #include <ostream>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
 using namespace Opm;
 
@@ -98,9 +105,9 @@ BOOST_AUTO_TEST_CASE(UnitSystemParseInvalidThrows) {
     BOOST_CHECK_EQUAL(3.0 , volumePerTime.getSIScaling());
 }
 
+namespace {
 
-
-static void checkSystemHasRequiredDimensions( const UnitSystem& system) {
+void checkSystemHasRequiredDimensions( const UnitSystem& system) {
     BOOST_CHECK( system.hasDimension("1"));
     BOOST_CHECK( system.hasDimension("Length"));
     BOOST_CHECK( system.hasDimension("Mass"));
@@ -111,7 +118,7 @@ static void checkSystemHasRequiredDimensions( const UnitSystem& system) {
     BOOST_CHECK( system.hasDimension("Temperature"));
 }
 
-
+} // Anonymous namespace
 
 BOOST_AUTO_TEST_CASE(CreateMetricSystem) {
     auto system = UnitSystem::newMETRIC();
@@ -280,6 +287,7 @@ BOOST_AUTO_TEST_CASE(METRIC_UNITS)
     BOOST_CHECK_CLOSE( metric.to_si( Meas::temperature , 1.0 ) , 274.15 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.to_si( Meas::viscosity , 1.0 ) , 1.0e-3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.to_si( Meas::permeability , 1.0 ) , 9.869232667160129e-16 , 1.0e-10 );
+    BOOST_CHECK_CLOSE( metric.to_si( Meas::area, 1.0 ) , 1. , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.to_si( Meas::liquid_surface_volume , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.to_si( Meas::gas_surface_volume , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.to_si( Meas::volume , 1.0 ) , 1.0 , 1.0e-10 );
@@ -307,6 +315,8 @@ BOOST_AUTO_TEST_CASE(METRIC_UNITS)
     BOOST_CHECK_CLOSE( metric.to_si( Meas::energy, 1.0), 1000, 1e-10);
     BOOST_CHECK_CLOSE( metric.to_si( Meas::icd_strength, 1.0), 7.46496e+14, 1e-10);
     BOOST_CHECK_CLOSE( metric.to_si( Meas::gas_oil_ratio_rate, 1.0), 1.1574074074074073e-05, 1.0e-10 );
+    BOOST_CHECK_CLOSE( metric.to_si( Meas::moles, 1.0), 1000, 1.0e-10 );
+    BOOST_CHECK_CLOSE( metric.to_si( Meas::ppm, 1.0 ) , 1.0e-6 , 1.0e-10 );
 
     // ----------------------------------------------------------------
     // SI -> METRIC
@@ -319,6 +329,7 @@ BOOST_AUTO_TEST_CASE(METRIC_UNITS)
     BOOST_CHECK_CLOSE( metric.from_si( Meas::temperature , 274.15 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.from_si( Meas::viscosity , 1.0 ) , 1.0e+3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.from_si( Meas::permeability , 1.0 ) , 1.01325e+15 , 1.0e-10 );
+    BOOST_CHECK_CLOSE( metric.from_si( Meas::area, 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.from_si( Meas::liquid_surface_volume , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.from_si( Meas::gas_surface_volume , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( metric.from_si( Meas::volume , 1.0 ) , 1.0 , 1.0e-10 );
@@ -346,6 +357,9 @@ BOOST_AUTO_TEST_CASE(METRIC_UNITS)
     BOOST_CHECK_CLOSE( metric.from_si( Meas::energy, 1000.0), 1, 1e-10);
     BOOST_CHECK_CLOSE( metric.from_si( Meas::icd_strength, 7.46496e+14), 1.0, 1e-10);
     BOOST_CHECK_CLOSE( metric.from_si( Meas::gas_oil_ratio_rate, 1.0), 86.400e3, 1.0e-10 );
+    BOOST_CHECK_CLOSE( metric.from_si( Meas::moles, 1), 0.001, 1.0e-10 );
+    BOOST_CHECK_CLOSE( metric.from_si( Meas::ppm, 1.0 ) , 1.0e6 , 1.0e-10 );
+
 }
 
 BOOST_AUTO_TEST_CASE(FIELD_UNITS)
@@ -367,6 +381,7 @@ BOOST_AUTO_TEST_CASE(FIELD_UNITS)
     BOOST_CHECK_CLOSE( field.to_si( Meas::temperature , 1.0 ) , 255.9277777777778 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.to_si( Meas::viscosity , 1.0 ) , 1.0e-3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.to_si( Meas::permeability , 1.0 ) , 9.869232667160129e-16 , 1.0e-10 );
+    BOOST_CHECK_CLOSE( field.to_si( Meas::area, 1.0 ) , 0.09290304, 1.0e-10 );
     BOOST_CHECK_CLOSE( field.to_si( Meas::liquid_surface_volume , 1.0 ) , 0.1589872949280001 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.to_si( Meas::gas_surface_volume , 1.0 ) , 28.31684659200000 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.to_si( Meas::volume , 1.0 ) , 0.1589872949280001 , 1.0e-10 );
@@ -394,6 +409,8 @@ BOOST_AUTO_TEST_CASE(FIELD_UNITS)
     BOOST_CHECK_CLOSE( field.to_si( Meas::energy , 1.0 ) , 1054.3503 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.to_si( Meas::icd_strength , 1.0 ) , 6.418842091749854e+16 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.to_si( Meas::gas_oil_ratio_rate, 1.0), 1.1574074074074073e-05*178.1076066790352, 1.0e-10 );
+    BOOST_CHECK_CLOSE( field.to_si( Meas::moles, 1.0), 453.59237, 1.0e-5 );
+    BOOST_CHECK_CLOSE( field.to_si( Meas::ppm, 1.0 ) , 1.0e-6 , 1.0e-10 );
 
 
     // ----------------------------------------------------------------
@@ -407,6 +424,7 @@ BOOST_AUTO_TEST_CASE(FIELD_UNITS)
     BOOST_CHECK_CLOSE( field.from_si( Meas::temperature , 255.9277777777778 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.from_si( Meas::viscosity , 1.0 ) , 1.0e+3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.from_si( Meas::permeability , 1.0 ) , 1.01325e+15 , 1.0e-10 );
+    BOOST_CHECK_CLOSE( field.from_si( Meas::area, 1.0 ) , 10.763910416709722 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.from_si( Meas::liquid_surface_volume , 1.0 ) , 6.289810770432102e+00 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.from_si( Meas::gas_surface_volume , 1.0 ) , 3.531466672148859e-02 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.from_si( Meas::volume , 1.0 ) , 6.289810770432102e+00 , 1.0e-10 );
@@ -433,6 +451,8 @@ BOOST_AUTO_TEST_CASE(FIELD_UNITS)
     BOOST_CHECK_CLOSE( field.from_si( Meas::energy , 1054.3503 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.from_si( Meas::icd_strength , 6.418842091749854e+16 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( field.from_si( Meas::gas_oil_ratio_rate, 1.0), 86.400e3*5.614583333333335e-03, 1.0e-10 );
+    BOOST_CHECK_CLOSE( field.from_si( Meas::moles, 1.0), 0.0022046226, 1.0e-5 );
+    BOOST_CHECK_CLOSE( field.from_si( Meas::ppm, 1.0 ) , 1.0e6 , 1.0e-10 );
 
 }
 
@@ -455,6 +475,7 @@ BOOST_AUTO_TEST_CASE(LAB_UNITS)
     BOOST_CHECK_CLOSE( lab.to_si( Meas::temperature , 1.0 ) , 274.15 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.to_si( Meas::viscosity , 1.0 ) , 1.0e-3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.to_si( Meas::permeability , 1.0 ) , 9.869232667160129e-16 , 1.0e-10 );
+    BOOST_CHECK_CLOSE( lab.to_si( Meas::area, 1.0 ) , 1.e-4 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.to_si( Meas::liquid_surface_volume , 1.0 ) , 1.0e-6 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.to_si( Meas::gas_surface_volume , 1.0 ) , 1.0e-6 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.to_si( Meas::volume , 1.0 ) , 1.0e-6 , 1.0e-10 );
@@ -482,6 +503,8 @@ BOOST_AUTO_TEST_CASE(LAB_UNITS)
     BOOST_CHECK_CLOSE( lab.to_si( Meas::energy , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.to_si( Meas::icd_strength , 1.0 ) , 1.313172e+24 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.to_si( Meas::gas_oil_ratio_rate, 1.0), 2.777777777777778e-4, 1.0e-10 );
+    BOOST_CHECK_CLOSE( lab.to_si( Meas::moles, 1), 1, 1.0e-10 );
+    BOOST_CHECK_CLOSE( lab.to_si( Meas::ppm, 1.0 ) , 1.0e-6 , 1.0e-10 );
 
 
     // ----------------------------------------------------------------
@@ -495,6 +518,7 @@ BOOST_AUTO_TEST_CASE(LAB_UNITS)
     BOOST_CHECK_CLOSE( lab.from_si( Meas::temperature , 274.15 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.from_si( Meas::viscosity , 1.0 ) , 1.0e+3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.from_si( Meas::permeability , 1.0 ) , 1.01325e+15 , 1.0e-10 );
+    BOOST_CHECK_CLOSE( lab.from_si( Meas::area, 1.0 ) , 1.0e4 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.from_si( Meas::liquid_surface_volume , 1.0 ) , 1.0e6 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.from_si( Meas::gas_surface_volume , 1.0 ) , 1.0e6 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.from_si( Meas::volume , 1.0 ) , 1.0e6 , 1.0e-10 );
@@ -522,6 +546,8 @@ BOOST_AUTO_TEST_CASE(LAB_UNITS)
     BOOST_CHECK_CLOSE( lab.from_si( Meas::energy , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.from_si( Meas::icd_strength , 1.0 ) , 7.615148662932201e-25 , 1.0e-10 );
     BOOST_CHECK_CLOSE( lab.from_si( Meas::gas_oil_ratio_rate, 1.0), 3.6e3, 1.0e-10 );
+    BOOST_CHECK_CLOSE( lab.from_si( Meas::moles, 1), 1, 1.0e-10 );
+    BOOST_CHECK_CLOSE( lab.from_si( Meas::ppm, 1.0 ) , 1.0e6 , 1.0e-10 );
 
 }
 
@@ -544,6 +570,7 @@ BOOST_AUTO_TEST_CASE(PVT_M_UNITS)
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::temperature , 1.0 ) , 274.15 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::viscosity , 1.0 ) , 1.0e-3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::permeability , 1.0 ) , 9.869232667160129e-16 , 1.0e-10 );
+    BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::area, 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::liquid_surface_volume , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::gas_surface_volume , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::volume , 1.0 ) , 1.0 , 1.0e-10 );
@@ -571,6 +598,8 @@ BOOST_AUTO_TEST_CASE(PVT_M_UNITS)
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::energy , 1.0 ) , 1.0e3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::icd_strength , 1.0 ) , 7.56387072e+14 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::gas_oil_ratio_rate, 1.0), 1.1574074074074073e-05, 1.0e-10 );
+    BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::moles, 1), 1000, 1.0e-10 );
+    BOOST_CHECK_CLOSE( pvt_m.to_si( Meas::ppm, 1.0 ) , 1.0e-6 , 1.0e-10 );
 
 
     // ----------------------------------------------------------------
@@ -584,6 +613,7 @@ BOOST_AUTO_TEST_CASE(PVT_M_UNITS)
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::temperature , 274.15 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::viscosity , 1.0 ) , 1.0e+3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::permeability , 1.0 ) , 1.01325e+15 , 1.0e-10 );
+    BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::area, 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::liquid_surface_volume , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::gas_surface_volume , 1.0 ) , 1.0 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::volume , 1.0 ) , 1.0 , 1.0e-10 );
@@ -611,6 +641,8 @@ BOOST_AUTO_TEST_CASE(PVT_M_UNITS)
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::energy , 1.0 ) , 1.0e-3 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::icd_strength , 1.0 ) , 1.322074420647951e-15 , 1.0e-10 );
     BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::gas_oil_ratio_rate, 1.0), 86.400e3, 1.0e-10 );
+    BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::moles, 1), 0.001, 1.0e-10 );
+    BOOST_CHECK_CLOSE( pvt_m.from_si( Meas::ppm, 1), 1.e6, 1.0e-10 );
 
 }
 
@@ -672,3 +704,103 @@ BOOST_AUTO_TEST_CASE(DECK_NAMES) {
     UnitSystem us("METRIC");
     BOOST_CHECK_EQUAL( us.deck_name(), "METRIC");
 }
+
+// ---------------------------------------------------------------------------
+
+BOOST_AUTO_TEST_SUITE(UDA_Dimensions)
+
+namespace {
+    decltype(auto) expectedDimensions()
+    {
+        using M = UnitSystem::measure;
+
+        return std::array {
+            std::pair { UDAControl::WCONPROD_ORAT, M::liquid_surface_rate   },
+            std::pair { UDAControl::WCONPROD_WRAT, M::liquid_surface_rate   },
+            std::pair { UDAControl::WCONPROD_GRAT, M::gas_surface_rate      },
+            std::pair { UDAControl::WCONPROD_LRAT, M::liquid_surface_rate   },
+            std::pair { UDAControl::WCONPROD_RESV, M::geometric_volume_rate },
+            std::pair { UDAControl::WCONPROD_BHP , M::pressure              },
+            std::pair { UDAControl::WCONPROD_THP , M::pressure              },
+            std::pair { UDAControl::WCONPROD_LIFT, M::gas_surface_rate      },
+
+            // ---------------------------------------------------------------
+
+            std::pair { UDAControl::WCONINJE_RATE, M::identity              },
+            std::pair { UDAControl::WCONINJE_RESV, M::geometric_volume_rate },
+            std::pair { UDAControl::WCONINJE_BHP , M::pressure              },
+            std::pair { UDAControl::WCONINJE_THP , M::pressure              },
+
+            // ---------------------------------------------------------------
+
+            std::pair { UDAControl::GCONPROD_OIL_TARGET   , M::liquid_surface_rate },
+            std::pair { UDAControl::GCONPROD_WATER_TARGET , M::liquid_surface_rate },
+            std::pair { UDAControl::GCONPROD_GAS_TARGET   , M::gas_surface_rate    },
+            std::pair { UDAControl::GCONPROD_LIQUID_TARGET, M::liquid_surface_rate },
+
+            // ---------------------------------------------------------------
+
+            std::pair { UDAControl::GCONINJE_SURFACE_MAX_RATE     , M::identity              },
+            std::pair { UDAControl::GCONINJE_RESV_MAX_RATE        , M::geometric_volume_rate },
+            std::pair { UDAControl::GCONINJE_TARGET_REINJ_FRACTION, M::identity              },
+            std::pair { UDAControl::GCONINJE_TARGET_VOID_FRACTION , M::identity              },
+
+            // ---------------------------------------------------------------
+
+            std::pair { UDAControl::WELTARG_ORAT, M::liquid_surface_rate   },
+            std::pair { UDAControl::WELTARG_WRAT, M::liquid_surface_rate   },
+            std::pair { UDAControl::WELTARG_GRAT, M::gas_surface_rate      },
+            std::pair { UDAControl::WELTARG_LRAT, M::liquid_surface_rate   },
+            std::pair { UDAControl::WELTARG_RESV, M::geometric_volume_rate },
+            std::pair { UDAControl::WELTARG_BHP , M::pressure              },
+            std::pair { UDAControl::WELTARG_THP , M::pressure              },
+            std::pair { UDAControl::WELTARG_LIFT, M::gas_surface_rate      },
+        };
+    }
+} // Anonymous namespace
+
+BOOST_AUTO_TEST_CASE(Metric)
+{
+    const auto usys = UnitSystem::newMETRIC();
+
+    for (const auto& [ctrl, unit] : expectedDimensions()) {
+        BOOST_CHECK_MESSAGE(usys.uda_dim(ctrl) == usys.getDimension(unit),
+                            "UDA Dimension for " << UDQ::controlName(ctrl) <<
+                            " must be " << usys.name(unit) << " in the METRIC unit system");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Field)
+{
+    const auto usys = UnitSystem::newFIELD();
+
+    for (const auto& [ctrl, unit] : expectedDimensions()) {
+        BOOST_CHECK_MESSAGE(usys.uda_dim(ctrl) == usys.getDimension(unit),
+                            "UDA Dimension for " << UDQ::controlName(ctrl) <<
+                            " must be " << usys.name(unit) << " in the FIELD unit system");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Lab)
+{
+    const auto usys = UnitSystem::newLAB();
+
+    for (const auto& [ctrl, unit] : expectedDimensions()) {
+        BOOST_CHECK_MESSAGE(usys.uda_dim(ctrl) == usys.getDimension(unit),
+                            "UDA Dimension for " << UDQ::controlName(ctrl) <<
+                            " must be " << usys.name(unit) << " in the LAB unit system");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Pvt_M)
+{
+    const auto usys = UnitSystem::newPVT_M();
+
+    for (const auto& [ctrl, unit] : expectedDimensions()) {
+        BOOST_CHECK_MESSAGE(usys.uda_dim(ctrl) == usys.getDimension(unit),
+                            "UDA Dimension for " << UDQ::controlName(ctrl) <<
+                            " must be " << usys.name(unit) << " in the PVT-M unit system");
+    }
+}
+
+BOOST_AUTO_TEST_SUITE_END() // UDA_Dimensions

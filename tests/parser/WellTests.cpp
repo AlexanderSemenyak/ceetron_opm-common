@@ -17,7 +17,6 @@
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -41,11 +40,14 @@
 #include <opm/input/eclipse/Schedule/SummaryState.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQActive.hpp>
 #include <opm/input/eclipse/Schedule/Well/Connection.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
 #include <opm/input/eclipse/Schedule/Well/WellConnections.hpp>
 #include <opm/input/eclipse/Parser/ParseContext.hpp>
 #include <opm/input/eclipse/Parser/ErrorGuard.hpp>
 #include <opm/input/eclipse/Parser/Parser.hpp>
 #include <opm/common/utility/TimeService.hpp>
+
+#include <opm/input/eclipse/Parser/ParserKeywords/F.hpp>
 
 using namespace Opm;
 
@@ -337,8 +339,8 @@ BOOST_AUTO_TEST_CASE(isProducerCorrectlySet) {
 
         BOOST_CHECK_EQUAL( false , well.isInjector());
         BOOST_CHECK_EQUAL( true , well.isProducer());
-        BOOST_CHECK_EQUAL( 0 , well.getInjectionProperties().surfaceInjectionRate.get<double>());
-        BOOST_CHECK_EQUAL( 0 , well.getInjectionProperties().reservoirInjectionRate.get<double>());
+        BOOST_CHECK_THROW( well.getInjectionProperties().surfaceInjectionRate.get<double>(), std::invalid_argument);
+        BOOST_CHECK_THROW( well.getInjectionProperties().reservoirInjectionRate.get<double>(), std::invalid_argument);
         BOOST_CHECK_EQUAL( 100 , well.getProductionProperties().OilRate.get<double>());
         BOOST_CHECK_EQUAL( 200 , well.getProductionProperties().GasRate.get<double>());
         BOOST_CHECK_EQUAL( 300 , well.getProductionProperties().WaterRate.get<double>());
@@ -588,8 +590,11 @@ namespace {
             Opm::UnitSystem unit_system(Opm::UnitSystem::UnitType::UNIT_TYPE_METRIC);
             auto deck = parser.parseString(input);
             const auto& record = deck["WCONHIST"].back().getRecord(0);
+            auto table_nr = record.getItem("VFP_TABLE").get< int >(0);
             Opm::Well::WellProductionProperties hist(unit_system, "W");
-            hist.handleWCONHIST(alq_type, unit_system, record);
+            hist.handleWCONHIST(alq_type, table_nr, 
+                                Opm::ParserKeywords::FBHPDEF::TARGET_BHP::defaultValue * unit::barsa,
+                                unit_system, record);
 
 
             return hist;
@@ -641,8 +646,11 @@ namespace {
             auto deck = parser.parseString(input);
             const auto& kwd     = deck["WCONPROD"].back();
             const auto&  record = kwd.getRecord(0);
+            auto table_nr = record.getItem("VFP_TABLE").get< int >(0);
             Opm::Well::WellProductionProperties pred(unit_system, "W");
-            pred.handleWCONPROD(alq_type, unit_system, "WELL", record);
+            pred.handleWCONPROD(alq_type, table_nr,
+                                Opm::ParserKeywords::FBHPDEF::TARGET_BHP::defaultValue * unit::barsa,
+                                unit_system, "WELL", record, {});
 
             return pred;
         }
@@ -652,8 +660,8 @@ namespace {
 
 BOOST_AUTO_TEST_CASE(WCH_All_Specified_BHP_Defaulted)
 {
-    Opm::SummaryState st(TimeService::now());
-    const Opm::Well::WellProductionProperties& p =
+    Opm::SummaryState st(TimeService::now(), 0.0);
+    const Opm::Well::WellProductionProperties p =
         WCONHIST::properties(WCONHIST::all_specified());
 
     BOOST_CHECK(p.hasProductionControl(Opm::Well::ProducerCMode::ORAT));
@@ -672,8 +680,8 @@ BOOST_AUTO_TEST_CASE(WCH_All_Specified_BHP_Defaulted)
 
 BOOST_AUTO_TEST_CASE(WCH_ORAT_Defaulted_BHP_Defaulted)
 {
-    Opm::SummaryState st(TimeService::now());
-    const Opm::Well::WellProductionProperties& p =
+    Opm::SummaryState st(TimeService::now(), 0.0);
+    const Opm::Well::WellProductionProperties p =
         WCONHIST::properties(WCONHIST::orat_defaulted());
 
     BOOST_CHECK( !p.hasProductionControl(Opm::Well::ProducerCMode::ORAT));
@@ -690,8 +698,8 @@ BOOST_AUTO_TEST_CASE(WCH_ORAT_Defaulted_BHP_Defaulted)
 
 BOOST_AUTO_TEST_CASE(WCH_OWRAT_Defaulted_BHP_Defaulted)
 {
-    Opm::SummaryState st(TimeService::now());
-    const Opm::Well::WellProductionProperties& p =
+    Opm::SummaryState st(TimeService::now(), 0.0);
+    const Opm::Well::WellProductionProperties p =
         WCONHIST::properties(WCONHIST::owrat_defaulted());
 
     BOOST_CHECK( !p.hasProductionControl(Opm::Well::ProducerCMode::ORAT));
@@ -708,8 +716,8 @@ BOOST_AUTO_TEST_CASE(WCH_OWRAT_Defaulted_BHP_Defaulted)
 
 BOOST_AUTO_TEST_CASE(WCH_Rates_Defaulted_BHP_Defaulted)
 {
-    Opm::SummaryState st(TimeService::now());
-    const Opm::Well::WellProductionProperties& p =
+    Opm::SummaryState st(TimeService::now(), 0.0);
+    const Opm::Well::WellProductionProperties p =
         WCONHIST::properties(WCONHIST::all_defaulted());
 
     BOOST_CHECK( !p.hasProductionControl(Opm::Well::ProducerCMode::ORAT));
@@ -726,8 +734,8 @@ BOOST_AUTO_TEST_CASE(WCH_Rates_Defaulted_BHP_Defaulted)
 
 BOOST_AUTO_TEST_CASE(WCH_Rates_Defaulted_BHP_Specified)
 {
-    Opm::SummaryState st(TimeService::now());
-    const Opm::Well::WellProductionProperties& p =
+    Opm::SummaryState st(TimeService::now(), 0.0);
+    const Opm::Well::WellProductionProperties p =
         WCONHIST::properties(WCONHIST::all_defaulted_with_bhp());
 
     BOOST_CHECK( !p.hasProductionControl(Opm::Well::ProducerCMode::ORAT));
@@ -745,8 +753,8 @@ BOOST_AUTO_TEST_CASE(WCH_Rates_Defaulted_BHP_Specified)
 
 BOOST_AUTO_TEST_CASE(WCH_Rates_NON_Defaulted_VFP)
 {
-    Opm::SummaryState st(TimeService::now());
-    const Opm::Well::WellProductionProperties& p =
+    Opm::SummaryState st(TimeService::now(), 0.0);
+    const Opm::Well::WellProductionProperties p =
         WCONHIST::properties(WCONHIST::all_defaulted_with_bhp_vfp_table(), VFPProdTable::ALQ_TYPE::ALQ_UNDEF);
 
     BOOST_CHECK( !p.hasProductionControl(Opm::Well::ProducerCMode::ORAT));
@@ -766,8 +774,8 @@ BOOST_AUTO_TEST_CASE(WCH_Rates_NON_Defaulted_VFP)
 
 BOOST_AUTO_TEST_CASE(WCH_BHP_Specified)
 {
-    Opm::SummaryState st(TimeService::now());
-    const Opm::Well::WellProductionProperties& p =
+    Opm::SummaryState st(TimeService::now(), 0.0);
+    const Opm::Well::WellProductionProperties p =
         WCONHIST::properties(WCONHIST::bhp_defaulted());
 
     BOOST_CHECK( !p.hasProductionControl(Opm::Well::ProducerCMode::ORAT));
@@ -874,7 +882,7 @@ BOOST_AUTO_TEST_CASE(WELL_CONTROLS) {
     auto unit_system = UnitSystem::newMETRIC();
     Opm::Well well("WELL", "GROUP", 0, 0, 0, 0, 1000, Opm::WellType(Opm::Phase::OIL), Opm::Well::ProducerCMode::CMODE_UNDEFINED, Opm::Connection::Order::DEPTH, unit_system, 0, 1.0, false, false, 0, Opm::Well::GasInflowEquation::STD);
     Opm::Well::WellProductionProperties prod(unit_system, "OP1");
-    Opm::SummaryState st(Opm::TimeService::now());
+    Opm::SummaryState st(Opm::TimeService::now(), 0.0);
     well.productionControls(st);
 
     // Use a scalar FIELD variable - that should work; although it is a bit weird.
@@ -904,7 +912,7 @@ BOOST_AUTO_TEST_CASE(ExtraAccessors) {
     prod_props->VFPTableNumber = 200;
     prod.updateProduction(prod_props);
 
-    BOOST_CHECK_THROW(prod.temperature(), std::runtime_error);
+    BOOST_CHECK_THROW(prod.inj_temperature(), std::logic_error);
     BOOST_CHECK_EQUAL(inj.vfp_table_number(), 100);
     BOOST_CHECK_EQUAL(prod.vfp_table_number(), 200);
 }
@@ -1235,7 +1243,7 @@ DATES             -- 2
 /
 
 WCONPROD
- 'P' 'OPEN' 'BHP' 1 2 3 2* 20. 10. 0 13 /
+ 'P' 'OPEN' 'BHP' 1 2 3 2* 20. 2* 13 /
 /
 
 WCONINJE
@@ -1515,10 +1523,8 @@ COMPDAT
 TSTEP
   1 /
 
-
-
 WELSPECS
-  'W1' 'G' 1 1 2005 'LIQ' /
+  'W1' 'G' 1 1 1995.0 'LIQ' /
 /
 
 -- W2
@@ -1538,7 +1544,6 @@ WPAVEDEP
 TSTEP
 1  /
 
-
 COMPDAT
      'W1'     1    1     1    1      'OPEN'  1*     25.620      0.216   2086.842  2*         'Y'      8.486 /
 /
@@ -1547,7 +1552,7 @@ TSTEP
 1 /
 
 WELSPECS
-  'W1' 'G' 1 1 1* 'LIQ' /
+  'W1' 'G' 1 1 -1.0 'LIQ' /
 /
 -- W5
 
@@ -1565,15 +1570,14 @@ END
     const auto& w4 = sched.getWell("W1", 4);
     const auto& w5 = sched.getWell("W1", 5);
 
-
-    BOOST_CHECK_EQUAL(w0.getRefDepth(), grid.getCellDepth(0,0,2));
-    BOOST_CHECK_EQUAL(w0.getRefDepth(), w0.getWPaveRefDepth());
-    BOOST_CHECK_EQUAL(w1.getRefDepth(), w0.getRefDepth());
-    BOOST_CHECK_EQUAL(w2.getRefDepth(), 2005 );
-    BOOST_CHECK_EQUAL(w3.getRefDepth(), grid.getCellDepth(0,0,1));
-    BOOST_CHECK_EQUAL(w4.getRefDepth(), w3.getRefDepth());
-    BOOST_CHECK_EQUAL(w5.getRefDepth(), grid.getCellDepth(0,0,0));
-    BOOST_CHECK_EQUAL(w5.getWPaveRefDepth(), 0);
+    BOOST_CHECK_CLOSE(w0.getRefDepth()     , grid.getCellDepth(0, 0, 2), 1.0e-8);
+    BOOST_CHECK_CLOSE(w0.getRefDepth()     , w0.getWPaveRefDepth()     , 1.0e-8);
+    BOOST_CHECK_CLOSE(w1.getRefDepth()     , w0.getRefDepth()          , 1.0e-8);
+    BOOST_CHECK_CLOSE(w2.getRefDepth()     , 1995.0                    , 1.0e-8);
+    BOOST_CHECK_CLOSE(w3.getRefDepth()     , 1995.0                    , 1.0e-8);
+    BOOST_CHECK_CLOSE(w4.getRefDepth()     , w3.getRefDepth()          , 1.0e-8);
+    BOOST_CHECK_CLOSE(w5.getRefDepth()     , grid.getCellDepth(0, 0, 0), 1.0e-8);
+    BOOST_CHECK_CLOSE(w5.getWPaveRefDepth(), 0.0                       , 1.0e-8);
 }
 
 BOOST_AUTO_TEST_CASE(Missing_RefDepth) {
@@ -1647,4 +1651,419 @@ END
     BOOST_CHECK_MESSAGE(w1.hasRefDepth(),
                         R"(Well "W1" must have a BHP reference depth at report=2)");
     BOOST_CHECK_CLOSE(w1.getRefDepth(), es.getInputGrid().getCellDepth(0, 0, 1), 1.0e-8);
+}
+
+BOOST_AUTO_TEST_CASE(Update_Group_Single_Well)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+DIMENS
+10 10 3 /
+GRID
+DXV
+10*100.0 /
+DYV
+10*100.0 /
+DZV
+3*5.0 /
+DEPTHZ
+121*2000 /
+PERMX
+300*100.0 /
+COPY
+PERMX PERMY /
+PERMX PERMZ /
+/
+MULTIPLY
+PERMZ 0.1 /
+/
+PORO
+300*0.3 /
+SCHEDULE
+WELSPECS
+ 'P' 'G' 10 10 1* 'OIL' /
+ 'I' 'G'  1  1 1* 'GAS' /
+/
+COMPDAT
+ 'P' 10 10 1 3 'OPEN' /
+ 'I'  1  1 1 1 'OPEN' /
+/
+WCONPROD
+ 'P' 'OPEN' 'LRAT' 1* 1* 1* 1234.567 1* 12.34 /
+/
+WCONINJE
+ 'I' 'GAS' 'OPEN' 'RATE' 20.0E3 /
+/
+TSTEP
+30.0 /
+WELSPECS
+ 'P' 'G1' /
+/
+TSTEP
+ 30.0 /
+END
+)");
+
+    const auto es    = EclipseState { deck };
+    const auto sched = Schedule { deck, es };
+
+    {
+        const auto& wellP = sched.getWell("P", 0);
+        BOOST_CHECK_EQUAL(wellP.groupName(), "G");
+    }
+
+    {
+        const auto& wellP = sched.getWell("P", 1);
+        BOOST_CHECK_EQUAL(wellP.groupName(), "G1");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Update_Group_Multi_Well)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+DIMENS
+10 10 3 /
+GRID
+DXV
+10*100.0 /
+DYV
+10*100.0 /
+DZV
+3*5.0 /
+DEPTHZ
+121*2000 /
+PERMX
+300*100.0 /
+COPY
+PERMX PERMY /
+PERMX PERMZ /
+/
+MULTIPLY
+PERMZ 0.1 /
+/
+PORO
+300*0.3 /
+SCHEDULE
+WELSPECS
+ 'P1' 'G'  1 10 1* 'OIL' /
+ 'P2' 'G' 10  1 1* 'OIL' /
+ 'P3' 'G' 10 10 1* 'OIL' /
+ 'I'  'G'  1  1 1* 'GAS' /
+/
+COMPDAT
+ 'P1'  1 10 1 3 'OPEN' /
+ 'P2' 10  1 1 3 'OPEN' /
+ 'P3' 10 10 1 3 'OPEN' /
+ 'I'   1  1 1 1 'OPEN' /
+/
+WCONPROD
+ 'P*' 'OPEN' 'LRAT' 1* 1* 1* 1234.567 1* 12.34 /
+/
+WCONINJE
+ 'I' 'GAS' 'OPEN' 'RATE' 20.0E3 /
+/
+TSTEP
+30.0 /
+WELSPECS
+ 'P*' 'G1' /
+/
+TSTEP
+ 30.0 /
+END
+)");
+
+    const auto es    = EclipseState { deck };
+    const auto sched = Schedule { deck, es };
+
+    {
+        for (const auto* P : { "P1", "P2", "P3", }) {
+            const auto& wellP = sched.getWell(P, 0);
+            BOOST_CHECK_MESSAGE(wellP.groupName() == "G",
+                                "Well " << P << " must have "
+                                "controlling group \"G\" at time zero");
+        }
+    }
+
+    {
+        for (const auto* P : { "P1", "P2", "P3", }) {
+            const auto& wellP = sched.getWell(P, 1);
+            BOOST_CHECK_MESSAGE(wellP.groupName() == "G1",
+                                "Well " << P << " must have "
+                                "controlling group \"G1\" at time one");
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Update_Group_WList)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+DIMENS
+10 10 3 /
+GRID
+DXV
+10*100.0 /
+DYV
+10*100.0 /
+DZV
+3*5.0 /
+DEPTHZ
+121*2000 /
+PERMX
+300*100.0 /
+COPY
+PERMX PERMY /
+PERMX PERMZ /
+/
+MULTIPLY
+PERMZ 0.1 /
+/
+PORO
+300*0.3 /
+SCHEDULE
+WELSPECS
+ 'P1' 'G'  1 10 1* 'OIL' /
+ 'P2' 'G' 10  1 1* 'OIL' /
+ 'P3' 'G' 10 10 1* 'OIL' /
+ 'I'  'G'  1  1 1* 'GAS' /
+/
+COMPDAT
+ 'P1'  1 10 1 3 'OPEN' /
+ 'P2' 10  1 1 3 'OPEN' /
+ 'P3' 10 10 1 3 'OPEN' /
+ 'I'   1  1 1 1 'OPEN' /
+/
+WLIST
+ '*QFS' NEW 'I' 'P3' /
+/
+WCONPROD
+ 'P*' 'OPEN' 'LRAT' 1* 1* 1* 1234.567 1* 12.34 /
+/
+WCONINJE
+ 'I' 'GAS' 'OPEN' 'RATE' 20.0E3 /
+/
+TSTEP
+30.0 /
+WELSPECS
+ '*QFS' 'G1' /
+/
+TSTEP
+ 30.0 /
+END
+)");
+
+    const auto es    = EclipseState { deck };
+    const auto sched = Schedule { deck, es };
+
+    {
+        for (const auto* P : { "P1", "P2", "P3", "I", }) {
+            const auto& wellP = sched.getWell(P, 0);
+            BOOST_CHECK_MESSAGE(wellP.groupName() == "G",
+                                "Well " << P << " must have "
+                                "controlling group \"G\" at time zero");
+        }
+    }
+
+    {
+        for (const auto* P : { "P1", "P2", }) {
+            const auto& wellP = sched.getWell(P, 1);
+            BOOST_CHECK_MESSAGE(wellP.groupName() == "G",
+                                "Well " << P << " must have "
+                                "controlling group \"G\" at time one");
+        }
+
+        for (const auto* P : { "P3", "I", }) {
+            const auto& wellP = sched.getWell(P, 1);
+            BOOST_CHECK_MESSAGE(wellP.groupName() == "G1",
+                                "Well " << P << " must have "
+                                "controlling group \"G1\" at time one");
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(FBHPDEF_Basic)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+DIMENS
+10 10 3 /
+GRID
+DXV
+10*100.0 /
+DYV
+10*100.0 /
+DZV
+3*5.0 /
+DEPTHZ
+121*2000 /
+PERMX
+300*100.0 /
+COPY
+PERMX PERMY /
+PERMX PERMZ /
+/
+MULTIPLY
+PERMZ 0.1 /
+/
+PORO
+300*0.3 /
+SCHEDULE
+
+WELSPECS
+ 'P' 'G' 10 10 1* 'OIL' /
+ 'I' 'G'  1  1 1* 'GAS' /
+ 'I2' 'W'  1  1 1* 'WATER' /
+ 'I3' 'W'  1  1 1* 'WATER' /
+/
+COMPDAT
+ 'P' 10 10 1 3 'OPEN' /
+ 'I'  1  1 1 1 'OPEN' /
+ 'I2'  1  1 1 1 'OPEN' /
+ 'I3'  1  1 1 1 'OPEN' /
+/
+
+WCONINJH
+  I3 WATER OPEN 116281 1* 0 /
+/
+
+FBHPDEF
+  5.0 20.0 /
+
+WCONPROD
+ 'P' 'OPEN' 'LRAT' 1* 1* 1* 1234.567 1* 1* /
+/
+
+WCONINJH
+  I2 WATER OPEN 116281 1* 0 /
+/
+
+FBHPDEF
+  2.0 30.0 /
+
+WCONINJE
+ 'I' 'GAS' 'OPEN' 'RATE' 20.0E3 /
+/
+
+TSTEP
+30.0 /
+WELSPECS
+ 'P' 'G1' /
+/
+TSTEP
+ 30.0 /
+END
+)");
+
+    const auto es    = EclipseState { deck };
+    const auto sched = Schedule { deck, es };
+
+    const auto& wellP = sched.getWell("P", 0);
+    BOOST_CHECK_EQUAL(wellP.getProductionProperties().BHPTarget.get<double>(), 5.0);
+
+    const auto& wellI = sched.getWell("I", 0);
+    BOOST_CHECK_CLOSE(wellI.getInjectionProperties().BHPTarget.get<double>(), 30.0, 1e-12);
+
+    const auto& wellI2 = sched.getWell("I2", 0);
+    BOOST_CHECK_EQUAL(wellI2.getInjectionProperties().bhp_hist_limit, 20.0 * unit::barsa);
+
+    const auto& wellI3 = sched.getWell("I3", 0);
+    BOOST_CHECK_CLOSE(wellI3.getInjectionProperties().bhp_hist_limit, 6891.2 * unit::barsa, 1e-12);
+}
+
+BOOST_AUTO_TEST_CASE(WCYCLE_Basic)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+DIMENS
+10 10 3 /
+GRID
+DXV
+10*100.0 /
+DYV
+10*100.0 /
+DZV
+3*5.0 /
+DEPTHZ
+121*2000 /
+PERMX
+300*100.0 /
+COPY
+PERMX PERMY /
+PERMX PERMZ /
+/
+MULTIPLY
+PERMZ 0.1 /
+/
+PORO
+300*0.3 /
+SCHEDULE
+
+WELSPECS
+ 'P' 'G' 10 10 1* 'OIL' /
+ 'I' 'G'  1  1 1* 'GAS' /
+ 'I2' 'W'  1  1 1* 'WATER' /
+ 'I3' 'W'  1  1 1* 'WATER' /
+/
+COMPDAT
+ 'P' 10 10 1 3 'OPEN' /
+ 'I'  1  1 1 1 'OPEN' /
+ 'I2'  1  1 1 1 'OPEN' /
+ 'I3'  1  1 1 1 'OPEN' /
+/
+
+WCONINJH
+  I3 WATER OPEN 116281 1* 0 /
+/
+
+WCONPROD
+ 'P' 'OPEN' 'LRAT' 1* 1* 1* 1234.567 1* 1* /
+/
+
+WCONINJH
+  I2 WATER OPEN 116281 1* 0 /
+/
+
+WCONINJE
+ 'I' 'GAS' 'OPEN' 'RATE' 20.0E3 /
+/
+
+WCYCLE
+-- Name   OnTime OffTime RampUpTime MaxDtOn DtRespectOnOff
+  'I1'    5       10        3        1        'NO'  /
+  'I2'    7       30        1        10       'YES'  /
+/
+
+TSTEP
+30.0 /
+WELSPECS
+ 'P' 'G1' /
+/
+TSTEP
+ 30.0 /
+END
+)");
+
+    const auto es    = EclipseState { deck };
+    const auto sched = Schedule { deck, es };
+
+    const auto& wcycle1 = sched[0].get<WCYCLE>().get();
+
+    BOOST_CHECK(!wcycle1.empty());
+    BOOST_CHECK_EQUAL(std::distance(wcycle1.begin(), wcycle1.end()), 2);
+
+    for (const auto& entry : wcycle1) {
+        if (entry.first == "I1") {
+            BOOST_CHECK_EQUAL(entry.second.on_time, 5 * unit::day);
+            BOOST_CHECK_EQUAL(entry.second.off_time, 10 * unit::day);
+            BOOST_CHECK_EQUAL(entry.second.startup_time , 3 * unit::day);
+            BOOST_CHECK_EQUAL(entry.second.max_time_step, 1 * unit::day);
+            BOOST_CHECK_EQUAL(entry.second.controlled_time_step, false);
+        }
+        else if (entry.first == "I2") {
+            BOOST_CHECK_EQUAL(entry.second.on_time, 7 * unit::day);
+            BOOST_CHECK_EQUAL(entry.second.off_time, 30 * unit::day);
+            BOOST_CHECK_EQUAL(entry.second.startup_time , 1 * unit::day);
+            BOOST_CHECK_EQUAL(entry.second.max_time_step, 10 * unit::day);
+            BOOST_CHECK_EQUAL(entry.second.controlled_time_step, true);
+        }
+        else {
+            BOOST_FAIL("Unexpected WCYCLE entry with name " + entry.first);
+        }
+    }
 }

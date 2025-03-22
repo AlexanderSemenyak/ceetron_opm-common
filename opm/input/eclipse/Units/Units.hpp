@@ -139,6 +139,7 @@ namespace Opm {
         constexpr const double gravity = 9.80665 * meter/square(second);
         /// @}
 
+        constexpr const double mol = 1;
         // --------------------------------------------------------------
         // Derived units and conversions
         // --------------------------------------------------------------
@@ -176,6 +177,8 @@ namespace Opm {
         constexpr const double Pas   = Pascal * second; // == 1
         constexpr const double Poise = prefix::deci*Pas;
         /// @}
+
+        constexpr const double ppm = 1. / prefix::mega;
 
         namespace perm_details {
             constexpr const double p_grad   = atm / (prefix::centi*meter);
@@ -267,6 +270,7 @@ namespace Opm {
         constexpr const double LiquidSurfaceVolume  = cubic(meter);
         constexpr const double GasSurfaceVolume     = cubic(meter);
         constexpr const double ReservoirVolume      = cubic(meter);
+        constexpr const double Area                 = square(meter);
         constexpr const double GeomVolume           = cubic(meter);
         constexpr const double GasDissolutionFactor = GasSurfaceVolume/LiquidSurfaceVolume;
         constexpr const double OilDissolutionFactor = LiquidSurfaceVolume/GasSurfaceVolume;
@@ -279,6 +283,9 @@ namespace Opm {
         constexpr const double Timestep             = day;
         constexpr const double SurfaceTension       = dyne/(centi*meter);
         constexpr const double Energy               = kilo*joule;
+        constexpr const double Moles                = kilo*mol;
+        constexpr const double PPM                  = ppm;
+        constexpr const double Ymodule              = giga*Pascal;
     }
 
 
@@ -298,6 +305,7 @@ namespace Opm {
         constexpr const double LiquidSurfaceVolume  = stb;
         constexpr const double GasSurfaceVolume     = 1000*cubic(feet);
         constexpr const double ReservoirVolume      = stb;
+        constexpr const double Area                 = square(feet);
         constexpr const double GeomVolume           = cubic(feet);
         constexpr const double GasDissolutionFactor = GasSurfaceVolume/LiquidSurfaceVolume;
         constexpr const double OilDissolutionFactor = LiquidSurfaceVolume/GasSurfaceVolume;
@@ -310,6 +318,9 @@ namespace Opm {
         constexpr const double Timestep             = day;
         constexpr const double SurfaceTension       = dyne/(centi*meter);
         constexpr const double Energy               = btu;
+        constexpr const double Moles                = kilo*pound*mol;
+        constexpr const double PPM                  = ppm;
+        constexpr const double Ymodule              = giga*Pascal;
     }
 
 
@@ -329,6 +340,7 @@ namespace Opm {
         constexpr const double LiquidSurfaceVolume  = cubic(centi*meter);
         constexpr const double GasSurfaceVolume     = cubic(centi*meter);
         constexpr const double ReservoirVolume      = cubic(centi*meter);
+        constexpr const double Area                 = square(centi*meter);
         constexpr const double GeomVolume           = cubic(centi*meter);
         constexpr const double GasDissolutionFactor = GasSurfaceVolume/LiquidSurfaceVolume;
         constexpr const double OilDissolutionFactor = LiquidSurfaceVolume/GasSurfaceVolume;
@@ -341,6 +353,9 @@ namespace Opm {
         constexpr const double Timestep             = hour;
         constexpr const double SurfaceTension       = dyne/(centi*meter);
         constexpr const double Energy               = joule;
+        constexpr const double Moles                = mol;
+        constexpr const double PPM                  = ppm;
+        constexpr const double Ymodule              = giga*Pascal;
     }
 
 
@@ -360,6 +375,7 @@ namespace Opm {
         constexpr const double LiquidSurfaceVolume  = cubic(meter);
         constexpr const double GasSurfaceVolume     = cubic(meter);
         constexpr const double ReservoirVolume      = cubic(meter);
+        constexpr const double Area                 = square(meter);
         constexpr const double GeomVolume           = cubic(meter);
         constexpr const double GasDissolutionFactor = GasSurfaceVolume/LiquidSurfaceVolume;
         constexpr const double OilDissolutionFactor = LiquidSurfaceVolume/GasSurfaceVolume;
@@ -372,6 +388,9 @@ namespace Opm {
         constexpr const double Timestep             = day;
         constexpr const double SurfaceTension       = dyne/(centi*meter);
         constexpr const double Energy               = kilo*joule;
+        constexpr const double Moles                = kilo*mol;
+        constexpr const double PPM                  = ppm;
+        constexpr const double Ymodule              = giga*Pascal;
     }
 }
 

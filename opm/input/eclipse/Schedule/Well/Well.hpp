@@ -30,29 +30,17 @@
 #include <utility>
 #include <vector>
 
-#include <stddef.h>
-
 #include <opm/input/eclipse/Deck/UDAValue.hpp>
-#include <opm/input/eclipse/EclipseState/Runspec.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellConnections.hpp>
-#include <opm/input/eclipse/Schedule/MSW/WellSegments.hpp>
+#include <opm/input/eclipse/EclipseState/Phase.hpp>
 #include <opm/input/eclipse/Schedule/ScheduleTypes.hpp>
-#include <opm/input/eclipse/Schedule/Well/PAvg.hpp>
-#include <opm/input/eclipse/Schedule/Well/PAvgCalculator.hpp>
-#include <opm/input/eclipse/Schedule/Well/ProductionControls.hpp>
-#include <opm/input/eclipse/Schedule/Well/InjectionControls.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellFoamProperties.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellBrineProperties.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellTracerProperties.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellPolymerProperties.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellMICPProperties.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellEconProductionLimits.hpp>
-#include <opm/input/eclipse/Schedule/Well/WVFPEXP.hpp>
 #include <opm/input/eclipse/Schedule/VFPProdTable.hpp>
-#include <opm/input/eclipse/Units/Units.hpp>
+#include <opm/input/eclipse/Schedule/Well/Connection.hpp>
+#include <opm/input/eclipse/Schedule/Well/PAvg.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellEnums.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellInjectionControls.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellProductionControls.hpp>
+#include <opm/input/eclipse/Schedule/Well/WINJMULT.hpp>
 #include <opm/input/eclipse/Units/UnitSystem.hpp>
-
-#include <opm/common/utility/ActiveGridCells.hpp>
 
 namespace Opm {
 
@@ -62,122 +50,59 @@ class DeckKeyword;
 class DeckRecord;
 class ErrorGuard;
 class EclipseGrid;
+class KeywordLocation;
 class ParseContext;
 class ScheduleGrid;
 class SICD;
 class SummaryState;
 class UDQActive;
 class UDQConfig;
+class Valve;
 class TracerConfig;
+class WellConnections;
+struct WellBrineProperties;
+class WellEconProductionLimits;
+struct WellFoamProperties;
+struct WellMICPProperties;
+struct WellPolymerProperties;
+class WellSegments;
+class WellTracerProperties;
+class WVFPEXP;
+class WVFPDP;
+class WDFAC;
 
 namespace RestartIO {
 struct RstWell;
 }
 
-
 class Well {
 public:
+    using Status = WellStatus;
 
-    enum class Status {
-        OPEN = 1,
-        STOP = 2,
-        SHUT = 3,
-        AUTO = 4
-    };
-    static std::string Status2String(Status enumValue);
-    static Status StatusFromString(const std::string& stringValue);
-
-
+    /*
+     * The mode for the keyword WINJMULT.  It can have four different values: WREV, CREV, CIRR and NONE.
+     */
+    using InjMultMode = InjMult::InjMultMode;
 
     /*
       The elements in this enum are used as bitmasks to keep track
       of which controls are present, i.e. the 2^n structure must
       be intact.
     */
-    enum class InjectorCMode : int{
-        RATE =  1 ,
-        RESV =  2 ,
-        BHP  =  4 ,
-        THP  =  8 ,
-        GRUP = 16 ,
-        CMODE_UNDEFINED = 512
-    };
-    static const std::string InjectorCMode2String( InjectorCMode enumValue );
-    static InjectorCMode InjectorCModeFromString( const std::string& stringValue );
-
+    using InjectorCMode = WellInjectorCMode;
 
     /*
-      The items BHP, THP and GRUP only apply in prediction mode:
-      WCONPROD. The elements in this enum are used as bitmasks to
-      keep track of which controls are present, i.e. the 2^n
-      structure must be intact.The NONE item is only used in WHISTCTL
-      to cancel its effect.
-
       The properties are initialized with the CMODE_UNDEFINED
       value, but the undefined value is never assigned apart from
       that; and it is not part of the string conversion routines.
     */
-    enum class ProducerCMode : int {
-        NONE =     0,
-        ORAT =     1,
-        WRAT =     2,
-        GRAT =     4,
-        LRAT =     8,
-        CRAT =    16,
-        RESV =    32,
-        BHP  =    64,
-        THP  =   128,
-        GRUP =   256,
-        CMODE_UNDEFINED = 1024
-    };
-    static const std::string ProducerCMode2String( ProducerCMode enumValue );
-    static ProducerCMode ProducerCModeFromString( const std::string& stringValue );
+    using ProducerCMode = WellProducerCMode;
 
+    using WELTARGCMode = WellWELTARGCMode;
 
+    using GuideRateTarget = WellGuideRateTarget;
 
-    enum class WELTARGCMode {
-        ORAT =  1,
-        WRAT =  2,
-        GRAT =  3,
-        LRAT =  4,
-        CRAT =  5,   // Not supported
-        RESV =  6,
-        BHP  =  7,
-        THP  =  8,
-        VFP  =  9,
-        LIFT = 10,   // Not supported
-        GUID = 11
-    };
-
-    static WELTARGCMode WELTARGCModeFromString(const std::string& stringValue);
-
-
-    enum class GuideRateTarget {
-        OIL = 0,
-        WAT = 1,
-        GAS = 2,
-        LIQ = 3,
-        COMB = 4,
-        WGA = 5,
-        CVAL = 6,
-        RAT = 7,
-        RES = 8,
-        UNDEFINED = 9
-    };
-    static const std::string GuideRateTarget2String( GuideRateTarget enumValue );
-    static GuideRateTarget GuideRateTargetFromString( const std::string& stringValue );
-
-
-    enum class GasInflowEquation {
-        STD = 0,
-        R_G = 1,
-        P_P = 2,
-        GPP = 3
-    };
-    static const std::string GasInflowEquation2String(GasInflowEquation enumValue);
-    static GasInflowEquation GasInflowEquationFromString(const std::string& stringValue);
-
-
+    using GasInflowEquation = WellGasInflowEquation;
 
     struct WellGuideRate {
         bool available;
@@ -213,34 +138,7 @@ public:
         }
     };
 
-
-    struct InjectionControls {
-    public:
-        InjectionControls(int controls_arg) :
-            controls(controls_arg)
-        {}
-
-        double bhp_limit;
-        double thp_limit;
-
-
-        InjectorType injector_type;
-        InjectorCMode cmode = InjectorCMode::CMODE_UNDEFINED;
-        double surface_rate;
-        double reservoir_rate;
-        int    vfp_table_number;
-        bool   prediction_mode;
-        double rs_rv_inj;
-
-        bool hasControl(InjectorCMode cmode_arg) const {
-            return (this->controls & static_cast<int>(cmode_arg)) != 0;
-        }
-
-    private:
-        int controls;
-    };
-
-
+    using InjectionControls = WellInjectionControls;
 
     struct WellInjectionProperties {
         std::string name;
@@ -271,8 +169,33 @@ public:
         static WellInjectionProperties serializationTestObject();
 
         void handleWELTARG(WELTARGCMode cmode, const UDAValue& new_arg, double SIFactorP);
-        void handleWCONINJE(const DeckRecord& record, bool availableForGroupControl, const std::string& well_name);
-        void handleWCONINJH(const DeckRecord& record, bool is_producer, const std::string& well_name);
+
+        //! \brief Handle a WCONINJE keyword.
+        //! \param record The deck record to use
+        //! \param bhp_def The default BHP target in input units
+        //! \param availableForGroupControl True if available for group control
+        //! \param well_name Name of well
+        //! \param location Location of keyword for logging purpose
+        void handleWCONINJE(const DeckRecord& record,
+                            const double bhp_def,
+                            bool availableForGroupControl,
+                            const std::string& well_name,
+                            const KeywordLocation& location);
+
+        //! \brief Handle a WCONINJH keyword.
+        //! \param record The deck record to use
+        //! \param vfp_table_nr The vfp table number
+        //! \param bhp_def The default BHP limit in SI units
+        //! \param is_producer True if well is a producer
+        //! \param well_name Name of well
+        //! \param loc Location of keyword for logging purpose
+        void handleWCONINJH(const DeckRecord& record,
+                            const int vfp_table_nr,
+                            const double bhp_def,
+                            const bool is_producer,
+                            const std::string& well_name,
+                            const KeywordLocation& loc);
+
         bool hasInjectionControl(InjectorCMode controlModeArg) const {
             if (injectionControls & static_cast<int>(controlModeArg))
                 return true;
@@ -324,52 +247,7 @@ public:
         }
     };
 
-    struct ProductionControls {
-    public:
-        ProductionControls(int controls_arg) :
-            controls(controls_arg)
-        {
-        }
-
-        ProducerCMode cmode = ProducerCMode::NONE;
-        double oil_rate{0};
-        double water_rate{0};
-        double gas_rate{0};
-        double liquid_rate{0};
-        double resv_rate{0};
-        double bhp_history{0};
-        double thp_history{0};
-        double bhp_limit{0};
-        double thp_limit{0};
-        double alq_value{0};
-        int    vfp_table_number{0};
-        bool   prediction_mode{0};
-
-        bool hasControl(ProducerCMode cmode_arg) const {
-            return (this->controls & static_cast<int>(cmode_arg)) != 0;
-        }
-
-        bool operator==(const ProductionControls& other) const {
-            return this->cmode == other.cmode &&
-                   this->oil_rate == other.oil_rate &&
-                   this->water_rate == other.water_rate &&
-                   this->gas_rate == other.gas_rate &&
-                   this->liquid_rate == other.liquid_rate &&
-                   this->resv_rate == other.resv_rate &&
-                   this->bhp_history == other.bhp_history &&
-                   this->thp_history == other.thp_history &&
-                   this->bhp_limit == other.bhp_limit &&
-                   this->thp_limit == other.thp_limit &&
-                   this->alq_value == other.alq_value &&
-                   this->vfp_table_number == other.vfp_table_number &&
-                   this->prediction_mode == other.prediction_mode;
-        }
-
-
-    private:
-        int controls;
-    };
-
+    using ProductionControls = WellProductionControls;
 
     class WellProductionProperties {
     public:
@@ -388,6 +266,7 @@ public:
         // BHP and THP limit
         double  bhp_hist_limit = 0.0;
         double  thp_hist_limit = 0.0;
+        bool    bhp_hist_limit_defaulted = true; // Tracks whether value was defaulted or not
 
         // historical BHP and THP under historical mode
         double  BHPH        = 0.0;
@@ -421,8 +300,34 @@ public:
 
         // this is used to check whether the specified control mode is an effective history matching production mode
         static bool effectiveHistoryProductionControl(ProducerCMode cmode);
-        void handleWCONPROD( const std::optional<VFPProdTable::ALQ_TYPE>& alq_type, const UnitSystem& unit_system, const std::string& well, const DeckRecord& record);
-        void handleWCONHIST( const std::optional<VFPProdTable::ALQ_TYPE>& alq_type, const UnitSystem& unit_system, const DeckRecord& record);
+
+        //! \brief Handle WCONPROD keyword.
+        //! \param alq_type ALQ type
+        //! \param vfp_table_nr The vfp table number
+        //! \param bhp_def Default BHP target in SI units
+        //! \param unit_system Unit system to use
+        //! \param well Well name
+        //! \param record Deck record to use
+        //! \param location Location of keyword for logging purpose
+        void handleWCONPROD(const std::optional<VFPProdTable::ALQ_TYPE>& alq_type,
+                            const int vfp_table_nr,
+                            const double bhp_def,
+                            const UnitSystem& unit_system,
+                            const std::string& well,
+                            const DeckRecord& record,
+                            const KeywordLocation& location);
+
+        //! \brief Handle WCONHIST keyword.
+        //! \param alq_type ALQ type
+        //! \param vfp_table_nr The vfp table number
+        //! \param bhp_def Default BHP limit in SI units
+        //! \param unit_system Unit system to use
+        //! \param record Deck record to use
+        void handleWCONHIST(const std::optional<VFPProdTable::ALQ_TYPE>& alq_type,
+                            const int vfp_table_nr,
+                            const double bhp_def,
+                            const UnitSystem& unit_system,
+                            const DeckRecord& record);
         void handleWELTARG( WELTARGCMode cmode, const UDAValue& new_arg, double SiFactorP);
         void resetDefaultBHPLimit();
         void clearControls();
@@ -463,7 +368,7 @@ public:
         void init_rates( const DeckRecord& record );
 
         void init_history(const DeckRecord& record);
-        void init_vfp(const std::optional<VFPProdTable::ALQ_TYPE>& alq_type, const UnitSystem& unit_system, const DeckRecord& record);
+        void init_vfp(const std::optional<VFPProdTable::ALQ_TYPE>& alq_type, const int vfp_table_nr, const UnitSystem& unit_system, const DeckRecord& record);
 
         WellProductionProperties(const DeckRecord& record);
 
@@ -477,7 +382,6 @@ public:
 
     static int eclipseControlMode(const Well&         well,
                                   const SummaryState& st);
-
 
     Well() = default;
     Well(const std::string& wname,
@@ -496,13 +400,16 @@ public:
          bool allow_xflow,
          bool auto_shutin,
          int pvt_table,
-         GasInflowEquation inflow_eq);
+         GasInflowEquation inflow_eq,
+         bool temp_option = false);
 
     Well(const RestartIO::RstWell& rst_well,
          int report_step,
+         int rst_whistctl_cmode,
          const TracerConfig& tracer_config,
          const UnitSystem& unit_system,
-         double udq_undefined);
+         double udq_undefined,
+         const std::optional<VFPProdTable::ALQ_TYPE>& alq_type);
 
     static Well serializationTestObject();
 
@@ -513,17 +420,16 @@ public:
     GuideRateTarget getRawGuideRatePhase() const;
     double getGuideRateScalingFactor() const;
 
-    bool hasBeenDefined(size_t timeStep) const;
+    bool hasBeenDefined(std::size_t timeStep) const;
     std::size_t firstTimeStep() const;
     const WellType& wellType() const;
     bool predictionMode() const;
-    bool canOpen() const;
     bool isProducer() const;
     bool isInjector() const;
     InjectorCMode injection_cmode() const;
     ProducerCMode production_cmode() const;
     InjectorType injectorType() const;
-    size_t seqIndex() const;
+    std::size_t seqIndex() const;
     bool getAutomaticShutIn() const;
     bool getAllowCrossFlow() const;
     const std::string& name() const;
@@ -539,10 +445,17 @@ public:
     Status getStatus() const;
     const std::string& groupName() const;
     Phase getPreferredPhase() const;
+    InjMultMode getInjMultMode() const;
+    const InjMult& getWellInjMult() const;
+    bool aciveWellInjMult() const;
 
-    const std::vector<const Connection *> getConnections(int completion) const;
+    bool hasConnections() const;
+    std::vector<const Connection *> getConnections(int completion) const;
     const WellConnections& getConnections() const;
+    WellConnections& getConnections();
     const WellSegments& getSegments() const;
+    int maxSegmentID() const;
+    int maxBranchID() const;
 
     const WellProductionProperties& getProductionProperties() const;
     const WellInjectionProperties& getInjectionProperties() const;
@@ -552,7 +465,10 @@ public:
     const WellMICPProperties& getMICPProperties() const;
     const WellBrineProperties& getBrineProperties() const;
     const WellTracerProperties& getTracerProperties() const;
+    const WVFPDP& getWVFPDP() const;
     const WVFPEXP& getWVFPEXP() const;
+    const WDFAC& getWDFAC() const;
+
     /* The rate of a given phase under the following assumptions:
      * * Returns zero if production is requested for an injector (and vice
      *   versa)
@@ -588,11 +504,11 @@ public:
     bool updatePrediction(bool prediction_mode);
     bool updateAutoShutin(bool auto_shutin);
     bool updateCrossFlow(bool allow_cross_flow);
-    bool updatePVTTable(int pvt_table);
-    bool updateHead(int I, int J);
+    bool updatePVTTable(std::optional<int> pvt_table);
+    bool updateHead(std::optional<int> I, std::optional<int> J);
     void updateRefDepth();
-    bool updateRefDepth(const std::optional<double>& ref_dpeth);
-    bool updateDrainageRadius(double drainage_radius);
+    bool updateRefDepth(std::optional<double> ref_dpeth);
+    bool updateDrainageRadius(std::optional<double> drainage_radius);
     void updateSegments(std::shared_ptr<WellSegments> segments_arg);
     bool updateConnections(std::shared_ptr<WellConnections> connections, bool force);
     bool updateConnections(std::shared_ptr<WellConnections> connections, const ScheduleGrid& grid);
@@ -600,7 +516,9 @@ public:
     bool updateGroup(const std::string& group);
     bool updateWellGuideRate(bool available, double guide_rate, GuideRateTarget guide_phase, double scale_factor);
     bool updateWellGuideRate(double guide_rate);
+    bool updateAvailableForGroupControl(bool available);
     bool updateEfficiencyFactor(double efficiency_factor);
+
     bool updateSolventFraction(double solvent_fraction);
     bool updateTracer(std::shared_ptr<WellTracerProperties> tracer_properties);
     bool updateFoamProperties(std::shared_ptr<WellFoamProperties> foam_properties);
@@ -616,13 +534,22 @@ public:
     bool updateWSEGAICD(const std::vector<std::pair<int, AutoICD> >& aicd_pairs, const KeywordLocation& location);
     bool updateWPAVE(const PAvg& pavg);
     void updateWPaveRefDepth(double ref_depth);
+    bool updateWVFPDP(std::shared_ptr<WVFPDP> wvfpdp);
     bool updateWVFPEXP(std::shared_ptr<WVFPEXP> wvfpexp);
+    bool updateWDFAC(std::shared_ptr<WDFAC> wdfac);
+
 
     bool handleWELSEGS(const DeckKeyword& keyword);
     bool handleCOMPSEGS(const DeckKeyword& keyword, const ScheduleGrid& grid, const ParseContext& parseContext, ErrorGuard& errors);
     bool handleWELOPENConnections(const DeckRecord& record, Connection::State status);
+    bool handleCSKIN(const DeckRecord& record, const KeywordLocation& location);
     bool handleCOMPLUMP(const DeckRecord& record);
     bool handleWPIMULT(const DeckRecord& record);
+    bool handleWINJCLN(const DeckRecord& record, const KeywordLocation& location);
+    bool handleWINJDAM(const DeckRecord& record, const KeywordLocation& location);
+    bool handleWINJMULT(const DeckRecord& record, const KeywordLocation& location);
+    void setFilterConc(const UDAValue& conc);
+    double evalFilterConc(const SummaryState& summary_sate) const;
     bool applyGlobalWPIMULT(double scale_factor);
 
     void filterConnections(const ActiveGridCells& grid);
@@ -633,9 +560,10 @@ public:
     int fip_region_number() const;
     GasInflowEquation gas_inflow_equation() const;
     bool segmented_density_calculation() const { return true; }
-    double alq_value() const;
-    double temperature() const;
-    void setWellTemperature(const double temp);
+    double alq_value(const SummaryState& st) const;
+    double inj_temperature() const;
+    bool hasInjTemperature() const;
+    void setWellInjTemperature(const double temp);
     bool hasInjected( ) const;
     bool hasProduced( ) const;
     bool updateHasInjected( );
@@ -648,7 +576,9 @@ public:
     void applyWellProdIndexScaling(const double       scalingFactor,
                                    std::vector<bool>& scalingApplicable);
     const PAvg& pavg() const;
-    PAvgCalculator pavg_calculator(const EclipseGrid& grid, const std::vector<double>& porv) const;
+
+    //! \brief Used by schedule deserialization.
+    void updateUnitSystem(const UnitSystem* usys) { unit_system = usys; }
 
     template<class Serializer>
     void serializeOp(Serializer& serializer)
@@ -661,7 +591,6 @@ public:
         serializer(headJ);
         serializer(ref_depth);
         serializer(wpave_ref_depth);
-        serializer(unit_system);
         serializer(udq_undefined);
         serializer(status);
         serializer(drainage_radius);
@@ -676,6 +605,7 @@ public:
         serializer(has_produced);
         serializer(has_injected);
         serializer(prediction_mode);
+        serializer(derive_refdepth_from_conns_);
         serializer(econ_limits);
         serializer(foam_properties);
         serializer(polymer_properties);
@@ -686,9 +616,15 @@ public:
         serializer(production);
         serializer(injection);
         serializer(segments);
+        serializer(wvfpdp);
+        serializer(wdfac);
         serializer(wvfpexp);
         serializer(m_pavg);
-        serializer(well_temperature);
+        serializer(well_inj_temperature);
+        serializer(default_well_inj_temperature);
+        serializer(inj_mult_mode);
+        serializer(well_inj_mult);
+        serializer(m_filter_concentration);
     }
 
 private:
@@ -697,52 +633,62 @@ private:
 
     GuideRateTarget preferredPhaseAsGuideRatePhase() const;
 
-    std::string wname;
-    std::string group_name;
-    std::size_t init_step;
-    std::size_t insert_index;
-    int headI;
-    int headJ;
-    std::optional<double> ref_depth;
-    std::optional<double> wpave_ref_depth;
-    double drainage_radius;
-    bool allow_cross_flow;
-    bool automatic_shutin;
-    int pvt_table;
-    GasInflowEquation gas_inflow = GasInflowEquation::STD;  // Will NOT be loaded/assigned from restart file
-    UnitSystem unit_system;
-    double udq_undefined;
-    WellType wtype;
-    WellGuideRate guide_rate;
-    double efficiency_factor;
-    double solvent_fraction;
+    std::string wname{};
+    std::string group_name{};
+    std::size_t init_step{};
+    std::size_t insert_index{};
+    int headI{};
+    int headJ{};
+    std::optional<double> ref_depth{};
+    std::optional<double> wpave_ref_depth{};
+    double drainage_radius{};
+    bool allow_cross_flow{false};
+    bool automatic_shutin{false};
+    int pvt_table{};
+
+    // Will NOT be loaded/assigned from restart file
+    GasInflowEquation gas_inflow = GasInflowEquation::STD;
+
+    const UnitSystem* unit_system{nullptr};
+    double udq_undefined{};
+    WellType wtype{};
+    WellGuideRate guide_rate{};
+    double efficiency_factor{};
+    double solvent_fraction{};
     bool has_produced = false;
     bool has_injected = false;
     bool prediction_mode = true;
+    bool derive_refdepth_from_conns_ { true };
 
-    std::shared_ptr<WellEconProductionLimits> econ_limits;
-    std::shared_ptr<WellFoamProperties> foam_properties;
-    std::shared_ptr<WellPolymerProperties> polymer_properties;
-    std::shared_ptr<WellMICPProperties> micp_properties;
-    std::shared_ptr<WellBrineProperties> brine_properties;
-    std::shared_ptr<WellTracerProperties> tracer_properties;
-    std::shared_ptr<WellConnections> connections; // The WellConnections object cannot be const because of WELPI and the filterConnections method
-    std::shared_ptr<WellProductionProperties> production;
-    std::shared_ptr<WellInjectionProperties> injection;
-    std::shared_ptr<WellSegments> segments;
-    std::shared_ptr<WVFPEXP> wvfpexp;
-    Status status;
-    PAvg m_pavg;
-    double well_temperature;
+    std::shared_ptr<WellEconProductionLimits> econ_limits{};
+    std::shared_ptr<WellFoamProperties> foam_properties{};
+    std::shared_ptr<WellPolymerProperties> polymer_properties{};
+    std::shared_ptr<WellMICPProperties> micp_properties{};
+    std::shared_ptr<WellBrineProperties> brine_properties{};
+    std::shared_ptr<WellTracerProperties> tracer_properties{};
+
+    // The WellConnections object cannot be const because of WELPI and the
+    // filterConnections method
+    std::shared_ptr<WellConnections> connections{};
+
+    std::shared_ptr<WellProductionProperties> production{};
+    std::shared_ptr<WellInjectionProperties> injection{};
+    std::shared_ptr<WellSegments> segments{};
+    std::shared_ptr<WVFPDP> wvfpdp{};
+    std::shared_ptr<WVFPEXP> wvfpexp{};
+    std::shared_ptr<WDFAC> wdfac{};
+
+    Status status{Status::AUTO};
+    PAvg m_pavg{};
+    std::optional<double> well_inj_temperature{};
+    std::optional<double> default_well_inj_temperature{std::nullopt};
+    InjMultMode inj_mult_mode = InjMultMode::NONE;
+    std::optional<InjMult> well_inj_mult{};
+    UDAValue m_filter_concentration{};
 };
 
 std::ostream& operator<<( std::ostream&, const Well::WellInjectionProperties& );
 std::ostream& operator<<( std::ostream&, const Well::WellProductionProperties& );
-
-
-std::ostream& operator<<(std::ostream& os, const Well::Status& st);
-std::ostream& operator<<(std::ostream& os, const Well::ProducerCMode& cm);
-std::ostream& operator<<(std::ostream& os, const Well::InjectorCMode& cm);
 
 }
 #endif

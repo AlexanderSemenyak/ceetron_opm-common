@@ -35,24 +35,26 @@ namespace Opm {
 
 namespace Opm {
 
+    enum class WellSegmentCompPressureDrop {
+          HFA = 0,
+          HF_ = 1,
+          H__ = 2
+    };
+
     class DeckKeyword;
     class KeywordLocation;
 
     class WellSegments {
     public:
-        enum class LengthDepth{
+        enum class LengthDepth {
             INC = 0,
             ABS = 1
         };
         static const std::string LengthDepthToString(LengthDepth enumValue);
         static LengthDepth LengthDepthFromString(const std::string& stringValue);
 
+        using CompPressureDrop = WellSegmentCompPressureDrop;
 
-        enum class CompPressureDrop {
-            HFA = 0,
-            HF_ = 1,
-            H__ = 2
-        };
         static const std::string CompPressureDropToString(CompPressureDrop enumValue);
         static CompPressureDrop CompPressureDropFromString(const std::string& stringValue);
 
@@ -64,7 +66,6 @@ namespace Opm {
         static const std::string MultiPhaseModelToString(MultiPhaseModel enumValue);
         static MultiPhaseModel MultiPhaseModelFromString(const std::string& stringValue);
 
-
         WellSegments() = default;
         WellSegments(CompPressureDrop compDrop,
                      const std::vector<Segment>& segments);
@@ -75,6 +76,8 @@ namespace Opm {
 
         std::size_t size() const;
         bool empty() const;
+        int maxSegmentID() const;
+        int maxBranchID() const;
         double depthTopSegment() const;
         double lengthTopSegment() const;
         double volumeTopSegment() const;
@@ -136,14 +139,14 @@ namespace Opm {
         const Segment& topSegment() const;
 
         // components of the pressure drop to be included
-        CompPressureDrop m_comp_pressure_drop;
+        CompPressureDrop m_comp_pressure_drop{CompPressureDrop::HFA};
         // There are other three properties for segment related to thermal conduction,
         // while they are not supported by the keyword at the moment.
 
-        std::vector< Segment > m_segments;
+        std::vector< Segment > m_segments{};
         // the mapping from the segment number to the
         // storage index in the vector
-        std::map<int, int> segment_number_to_index;
+        std::map<int, int> segment_number_to_index{};
     };
 }
 

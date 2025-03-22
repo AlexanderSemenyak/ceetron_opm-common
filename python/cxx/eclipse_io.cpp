@@ -20,6 +20,8 @@
 #include "export.hpp"
 #include "converters.hpp"
 
+#include <python/cxx/OpmCommonPythonDoc.hpp>
+
 namespace py = pybind11;
 
 
@@ -99,6 +101,26 @@ public:
         return TimeService::from_time_t( local_time_t );
     }
 
+    std::vector<time_point> dates() const
+    {
+        std::vector<time_point> result;
+        std::vector<time_point> times;
+        if (m_esmry != nullptr) {
+            times = m_esmry->dates();
+        } else {
+            times = m_ext_esmry->dates();
+        }
+        result.reserve(times.size());
+        for (std::size_t i = 0; i < times.size(); ++i) {
+            auto utc_time_t   = std::chrono::system_clock::to_time_t(times[i]);
+            auto utc_ts       = Opm::TimeStampUTC(utc_time_t);
+            auto local_time_t = Opm::asLocalTimeT(utc_ts);
+            result.push_back(TimeService::from_time_t(local_time_t));
+        }
+
+        return result;
+    }
+
     const std::vector<std::string>& keywordList() const
     {
         if (m_esmry != nullptr)
@@ -115,6 +137,16 @@ public:
             return m_ext_esmry->keywordList(pattern);
     }
 
+    std::string units(const std::string& field) const
+    {
+        if (m_esmry != nullptr) {
+            return m_esmry->get_unit(field);
+        }
+        else {
+            return m_ext_esmry->get_unit(field);
+        }
+    }
+
 private:
     std::unique_ptr<Opm::EclIO::ESmry> m_esmry;
     std::unique_ptr<Opm::EclIO::ExtESmry> m_ext_esmry;
@@ -126,7 +158,7 @@ class EclOutputBind {
 
 public:
 
-    EclOutputBind(const std::string& filename,const bool formatted, const bool append)
+    EclOutputBind(const std::string& filename, const bool formatted, const bool append)
     {
         if (append == true)
             m_output = std::make_unique<Opm::EclIO::EclOutput>(filename, formatted, std::ios::app);
@@ -262,26 +294,51 @@ npArray get_erst_vector(Opm::EclIO::ERst * file_ptr, const std::string& key, siz
     return get_erst_by_index(file_ptr, array_index, rstep);
 }
 
-
 std::tuple<std::array<double,8>, std::array<double,8>, std::array<double,8>>
-get_xyz_from_ijk(Opm::EclIO::EGrid * file_ptr,int i, int j, int k)
+get_xyz_from_ijk(Opm::EclIO::EGrid * file_ptr, int i, int j, int k)
 {
     std::array<double,8> X = {0.0};
     std::array<double,8> Y = {0.0};
     std::array<double,8> Z = {0.0};
 
-    std::array<int, 3> ijk = {i, j, k };
+    std::array<int, 3> ijk = {i, j, k};
 
     file_ptr->getCellCorners(ijk, X, Y, Z);
 
-    return std::make_tuple( X, Y, Z);
+    return std::make_tuple(X, Y, Z);
+}
+
+std::tuple<std::array<double,8>, std::array<double,8>, std::array<double,8>>
+get_xyz_from_ijk_mapaxes(Opm::EclIO::EGrid * file_ptr, int i, int j, int k, bool mapaxes)
+{
+    auto xyz = get_xyz_from_ijk(file_ptr, i, j, k);
+
+    if (file_ptr->with_mapaxes() && mapaxes){
+        for (int n = 0; n < 8; n++)
+            file_ptr->mapaxes_transform(std::get<0>(xyz)[n], std::get<1>(xyz)[n]);
+    }
+
+    return xyz;
 }
 
 std::tuple<std::array<double,8>, std::array<double,8>, std::array<double,8>>
 get_xyz_from_active_index(Opm::EclIO::EGrid * file_ptr, int actIndex)
 {
     std::array<int, 3> ijk = file_ptr->ijk_from_active_index(actIndex);
-    return get_xyz_from_ijk(file_ptr,ijk[0], ijk[1], ijk[2]);
+    return get_xyz_from_ijk(file_ptr, ijk[0], ijk[1], ijk[2]);
+}
+
+std::tuple<std::array<double,8>, std::array<double,8>, std::array<double,8>>
+get_xyz_from_active_index_mapaxes(Opm::EclIO::EGrid * file_ptr, int actIndex, bool mapaxes)
+{
+    auto xyz = get_xyz_from_active_index(file_ptr, actIndex);
+
+    if (file_ptr->with_mapaxes() && mapaxes){
+        for (int n = 0; n < 8; n++)
+            file_ptr->mapaxes_transform(std::get<0>(xyz)[n], std::get<1>(xyz)[n]);
+    }
+
+    return xyz;
 }
 
 py::array get_cellvolumes_mask(Opm::EclIO::EGrid * file_ptr, std::vector<int> mask)
@@ -382,25 +439,27 @@ npArray get_rft_vector_Index(Opm::EclIO::ERft * file_ptr,const std::string& name
 
 void python::common::export_IO(py::module& m) {
 
-    py::enum_<Opm::EclIO::eclArrType>(m, "eclArrType", py::arithmetic())
-        .value("INTE", Opm::EclIO::INTE)
-        .value("REAL", Opm::EclIO::REAL)
-        .value("DOUB", Opm::EclIO::DOUB)
-        .value("CHAR", Opm::EclIO::CHAR)
-        .value("C0nn", Opm::EclIO::C0NN)
-        .value("LOGI", Opm::EclIO::LOGI)
-        .value("MESS", Opm::EclIO::MESS)
+    using namespace Opm::Common::DocStrings;
+
+    py::enum_<Opm::EclIO::eclArrType>(m, "eclArrType", py::arithmetic(), eclArrType_docstring)
+        .value("INTE", Opm::EclIO::INTE, eclArrType_INTE_docstring)
+        .value("REAL", Opm::EclIO::REAL, eclArrType_REAL_docstring)
+        .value("DOUB", Opm::EclIO::DOUB, eclArrType_DOUB_docstring)
+        .value("CHAR", Opm::EclIO::CHAR, eclArrType_CHAR_docstring)
+        .value("C0nn", Opm::EclIO::C0NN, eclArrType_C0nn_docstring)
+        .value("LOGI", Opm::EclIO::LOGI, eclArrType_LOGI_docstring)
+        .value("MESS", Opm::EclIO::MESS, eclArrType_MESS_docstring)
         .export_values();
 
-    py::class_<Opm::EclIO::EclFile>(m, "EclFile")
-        .def(py::init<const std::string &, bool>(), py::arg("filename"), py::arg("preload") = false)
-        .def_property_readonly("arrays", &Opm::EclIO::EclFile::getList)
-        .def("__contains__", &Opm::EclIO::EclFile::hasKey)
-        .def("__len__", &Opm::EclIO::EclFile::size)
-        .def("count", &Opm::EclIO::EclFile::count)
-        .def("__get_data", &get_vector_index)
-        .def("__get_data", &get_vector_name)
-        .def("__get_data", &get_vector_occurrence);
+    py::class_<Opm::EclIO::EclFile>(m, "EclFile", EclFile_docstring)
+        .def(py::init<const std::string &, bool>(), py::arg("filename"), py::arg("preload") = false, EclFile_init_docstring)
+        .def_property_readonly("arrays", &Opm::EclIO::EclFile::getList, EclFile_arrays_docstring)
+        .def("__contains__", &Opm::EclIO::EclFile::hasKey, py::arg("name"), EclFile_contains_docstring)
+        .def("__len__", &Opm::EclIO::EclFile::size, EclFile_len_docstring)
+        .def("count", &Opm::EclIO::EclFile::count, py::arg("name"), EclFile_count_docstring)
+        .def("__get_data", &get_vector_index, py::arg("index"), EclFile_get_data_index_docstring)
+        .def("__get_data", &get_vector_name, py::arg("name"), EclFile_get_data_name_docstring)
+        .def("__get_data", &get_vector_occurrence, py::arg("name"), py::arg("occurrence"), EclFile_get_data_occurrence_docstring);
 
     py::class_<Opm::EclIO::ERst>(m, "ERst")
         .def(py::init<const std::string &>())
@@ -428,19 +487,24 @@ void python::common::export_IO(py::module& m) {
         .def("keys", (const std::vector<std::string>& (ESmryBind::*) (void) const)
             &ESmryBind::keywordList)
         .def("keys", (std::vector<std::string> (ESmryBind::*) (const std::string&) const)
-            &ESmryBind::keywordList);
-
+            &ESmryBind::keywordList)
+        .def("dates", &ESmryBind::dates)
+        .def("units", &ESmryBind::units);
 
    py::class_<Opm::EclIO::EGrid>(m, "EGrid")
-        .def(py::init<const std::string &>())
+        .def(py::init<const std::string &, const std::string &>(), py::arg("filename"),
+             py::arg("grid_name") = "global")
         .def_property_readonly("active_cells", &Opm::EclIO::EGrid::activeCells)
         .def_property_readonly("dimension", &Opm::EclIO::EGrid::dimension)
         .def("ijk_from_global_index", &Opm::EclIO::EGrid::ijk_from_global_index)
         .def("ijk_from_active_index", &Opm::EclIO::EGrid::ijk_from_active_index)
         .def("active_index", &Opm::EclIO::EGrid::active_index)
         .def("global_index", &Opm::EclIO::EGrid::global_index)
+        .def("export_mapaxes", &Opm::EclIO::EGrid::get_mapaxes)
         .def("xyz_from_ijk", &get_xyz_from_ijk)
+        .def("xyz_from_ijk", &get_xyz_from_ijk_mapaxes)
         .def("xyz_from_active_index", &get_xyz_from_active_index)
+        .def("xyz_from_active_index", &get_xyz_from_active_index_mapaxes)
         .def("cellvolumes", &get_cellvolumes)
         .def("cellvolumes", &get_cellvolumes_mask);
 

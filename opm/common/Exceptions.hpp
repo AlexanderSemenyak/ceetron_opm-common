@@ -24,6 +24,7 @@
 #define OPM_EXCEPTIONS_HPP
 
 #include <stdexcept>
+#include <string>
 
 // the OPM-specific exception classes
 namespace Opm {
@@ -40,6 +41,14 @@ class NumericalProblem : public std::runtime_error
 public:
     explicit NumericalProblem(const std::string &message)
         : std::runtime_error(message)
+    {}
+};
+
+class ConvergenceMonitorFailure : public NumericalProblem
+{
+public:
+    explicit ConvergenceMonitorFailure(const std::string &message)
+        : NumericalProblem(message)
     {}
 };
 
@@ -65,6 +74,20 @@ public:
         : NumericalProblem(message)
     {}
 };
-}
+class TimeSteppingBreakdown : public NumericalProblem
+{
+public:
+    explicit TimeSteppingBreakdown(const std::string &message)
+        : NumericalProblem(message)
+    {}
+};
+class ReservoirCouplingError : public std::runtime_error
+{
+public:
+    explicit ReservoirCouplingError(const std::string &message)
+        : std::runtime_error(message)
+    {}
+};
 
+}
 #endif // OPM_EXCEPTIONS_HPP

@@ -15,41 +15,52 @@
 
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-#include <algorithm>
-#include <iostream>
-#include <iomanip>
-#include <memory>
-#include <numeric>
-#include <stdexcept>
-#include <sstream>
-#include <string>
+*/
 
 #define BOOST_TEST_MODULE FieldPropsTests
 
 #include <boost/test/unit_test.hpp>
+
+#include <boost/version.hpp>
+#if BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 < 71
+#include <boost/test/floating_point_comparison.hpp>
+#else
 #include <boost/test/tools/floating_point_comparison.hpp>
+#endif
+
+#include <opm/input/eclipse/EclipseState/Grid/FieldProps.hpp>
 
 #include <opm/common/utility/OpmInputError.hpp>
 
-#include <opm/input/eclipse/Parser/Parser.hpp>
-
-#include <opm/input/eclipse/Python/Python.hpp>
-#include <opm/input/eclipse/Units/Units.hpp>
-#include <opm/input/eclipse/Units/UnitSystem.hpp>
-#include <opm/input/eclipse/Deck/DeckSection.hpp>
-#include <opm/input/eclipse/Deck/Deck.hpp>
-#include <opm/input/eclipse/Deck/DeckKeyword.hpp>
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
-#include <opm/input/eclipse/EclipseState/Tables/TableManager.hpp>
-#include <opm/input/eclipse/EclipseState/Grid/FieldPropsManager.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/EclipseGrid.hpp>
+#include <opm/input/eclipse/EclipseState/Grid/FieldPropsManager.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/SatfuncPropertyInitializers.hpp>
 #include <opm/input/eclipse/EclipseState/Runspec.hpp>
+#include <opm/input/eclipse/EclipseState/Tables/TableManager.hpp>
+
+#include <opm/input/eclipse/Python/Python.hpp>
+
 #include <opm/input/eclipse/Schedule/Schedule.hpp>
 
-#include <opm/input/eclipse/EclipseState/Grid/FieldProps.hpp>
+#include <opm/input/eclipse/Units/Units.hpp>
+#include <opm/input/eclipse/Units/UnitSystem.hpp>
+
+#include <opm/input/eclipse/Deck/Deck.hpp>
+#include <opm/input/eclipse/Deck/DeckKeyword.hpp>
+#include <opm/input/eclipse/Deck/DeckSection.hpp>
+
+#include <opm/input/eclipse/Parser/Parser.hpp>
+
+#include <algorithm>
+#include <cstddef>
+#include <iomanip>
+#include <memory>
+#include <numeric>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 using namespace Opm;
 
@@ -196,9 +207,169 @@ COPY
 /
 )";
 
-    EclipseGrid grid(EclipseGrid(10,10,10));
-    Deck deck = Parser{}.parseString(deck_string);
-    BOOST_CHECK_THROW( FieldPropsManager(deck, Phases{true, true, true}, grid, TableManager()), std::out_of_range);
+    const auto deck = Parser{}.parseString(deck_string);
+
+    // Note: 'grid' must be mutable.
+    auto grid = EclipseGrid { 10, 10, 10 };
+
+    BOOST_CHECK_THROW(FieldPropsManager(deck, Phases{true, true, true}, grid, TableManager{}),
+                      OpmInputError);
+}
+
+BOOST_AUTO_TEST_CASE(INVALID_COPY_UNDEFINED_BOX)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+OIL
+GAS
+WATER
+TABDIMS
+/
+DIMENS
+ 10 10 10 /
+PROPS
+SGFN
+ 0.0 0.0 0.0
+ 0.8 1.0 0.0
+/
+SWFN
+ 0.2 0.0 0.0
+ 1.0 1.0 0.0
+/
+SOF3
+ 0.0 0.0 0.0
+ 0.8 1.0 1.0
+/
+EQUALS
+ 'SGL' 0.0 2* 2* 1 5 /
+/
+COPY
+  SGL SWL 2* 2* 6 10 /
+/
+)");
+
+    // Note: 'grid' must be mutable.
+    auto grid = EclipseGrid { 10, 10, 10 };
+
+    BOOST_CHECK_THROW(FieldPropsManager(deck, Phases{true, true, true}, grid, TableManager{deck}),
+                      OpmInputError);
+}
+
+BOOST_AUTO_TEST_CASE(INVALID_COPY_PARTIALLY_DEFINED)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+OIL
+GAS
+WATER
+TABDIMS
+/
+DIMENS
+ 10 10 10 /
+PROPS
+SGFN
+ 0.0 0.0 0.0
+ 0.8 1.0 0.0
+/
+SWFN
+ 0.2 0.0 0.0
+ 1.0 1.0 0.0
+/
+SOF3
+ 0.0 0.0 0.0
+ 0.8 1.0 1.0
+/
+EQUALS
+ 'SGL' 0.0 2* 2* 1 5 /
+/
+COPY
+  SGL SWL 2* 2* 4 7 /
+/
+)");
+
+    // Note: 'grid' must be mutable.
+    auto grid = EclipseGrid { 10, 10, 10 };
+
+    BOOST_CHECK_THROW(FieldPropsManager(deck, Phases{true, true, true}, grid, TableManager{deck}),
+                      OpmInputError);
+}
+
+BOOST_AUTO_TEST_CASE(INVALID_ADD)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+OIL
+GAS
+WATER
+TABDIMS
+/
+DIMENS
+ 10 10 10 /
+PROPS
+SGFN
+ 0.0 0.0 0.0
+ 0.8 1.0 0.0
+/
+SWFN
+ 0.2 0.0 0.0
+ 1.0 1.0 0.0
+/
+SOF3
+ 0.0 0.0 0.0
+ 0.8 1.0 1.0
+/
+ADD
+  SGU 0.123 /
+/
+)");
+
+    // Note: 'grid' must be mutable.
+    auto grid = EclipseGrid { 10, 10, 10 };
+
+    BOOST_CHECK_THROW(FieldPropsManager(deck, Phases{true, true, true}, grid, TableManager{deck}),
+                      OpmInputError);
+}
+
+BOOST_AUTO_TEST_CASE(Multiply_Defaulted_MultX)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+OIL
+GAS
+WATER
+TABDIMS
+/
+DIMENS
+ 3 3 3 /
+GRID
+MULTIPLY
+ 'MULTX' 0.123 1 3 1 1 2 2 /
+ 'MULTX' 0.234 1 3 2 2 2 2 /
+ 'MULTX' 0.345 1 3 3 3 2 2 /
+/
+)");
+
+    // Note: 'grid' must be mutable in FieldPropsManager constructor.
+    auto grid = EclipseGrid { 3, 3, 3 };
+
+    const auto fpMgr = FieldPropsManager {
+        deck, Phases{true, true, true}, grid, TableManager{deck}
+    };
+
+    const auto& multX = fpMgr.get_double("MULTX");
+
+    const auto expect = std::vector {
+        1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0,
+
+        0.123, 0.123, 0.123,
+        0.234, 0.234, 0.234,
+        0.345, 0.345, 0.345,
+
+        1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0,
+    };
+
+    BOOST_CHECK_EQUAL_COLLECTIONS(multX .begin(), multX .end(),
+                                  expect.begin(), expect.end());
 }
 
 BOOST_AUTO_TEST_CASE(GRID_RESET) {
@@ -380,6 +551,9 @@ ENDBOX
 
 MULTREGP
   2 8 F /  -- This should be ignored
+/
+
+MULTREGP
   2 5 M /
 /
 
@@ -422,7 +596,7 @@ ENDBOX
         BOOST_CHECK_EQUAL(poro[g], 0.10);
         BOOST_CHECK_EQUAL(ntg[g], 1.0);
         BOOST_CHECK_EQUAL(multpv[g], 1.0);
-        BOOST_CHECK_EQUAL(porv[g],3.0);
+        BOOST_CHECK_EQUAL(porv[g], 3.0);
     }
 
     // k = 3: poro * V * multpv
@@ -693,6 +867,9 @@ PERMX
 PERMY
    6*1000/
 
+MULTZ
+   6*1.0/
+
 OPERATE
     PERMX   1  3   1  1   1   1  'MINLIM'   PERMX 2 /
     PERMX   1  3   2  2   1   1  'MINLIM'   PERMX 4 /
@@ -700,6 +877,8 @@ OPERATE
     PERMY   1  3   2  2   1   1  'MAXLIM'   PERMY 200 /
     PERMZ   1  3   1  1   1   1  'MULTA'    PERMY 2 1000 /
     PERMZ   1  3   2  2   1   1  'MULTA'    PERMX 3  300 /
+    MULTZ 1  3   1  1   1   1  'MAXLIM'   MULTZ 0.50 /
+    MULTZ 1  3   2  2   1   1  'MAXLIM'   MULTZ 0.75 /
 /
 
 
@@ -729,6 +908,10 @@ OPERATE
         BOOST_CHECK_CLOSE(permz[i]  , 2*permy[i]   + to_si(1000), 1e-13);
         BOOST_CHECK_CLOSE(permz[i+3], 3*permx[i+3] + to_si(300), 1e-13);
     }
+
+    const auto& multz = fpm.get_double("MULTZ");
+    BOOST_CHECK_EQUAL(multz[0], 0.5);
+    BOOST_CHECK_EQUAL(multz[3], 0.75);
 }
 
 BOOST_AUTO_TEST_CASE(EPS_Props_Inconsistent) {
@@ -783,6 +966,80 @@ PROPS
 SOGCR    -- Requires 'OIL'
 300*0.05 /
 )"), Opm::OpmInputError);
+}
+
+BOOST_AUTO_TEST_CASE(SGWFN) {
+    std::string deck_string = R"(
+RUNSPEC
+
+DIMENS
+6 6 3 /
+
+WATER
+GAS
+CO2STORE
+
+TABDIMS
+/
+
+GRID
+
+DXV
+  6*100.0 /
+DYV
+  6*100.0 /
+DZV
+  3*5.0 /
+
+TOPS
+  36*2000.0 /
+
+PERMX
+  108*100.0 /
+PERMY
+  108*100.0 /
+PERMZ
+  108*10.0 /
+PORO
+  108*0.3 /
+
+PROPS
+
+SGWFN
+0.00   0.00     0.9      0.0
+0.05   0.02     0.8      5.
+0.10   0.03     0.5      10.0
+0.80   1.00     0.0      20.0
+/
+)";
+    const auto es = ::Opm::EclipseState {
+        ::Opm::Parser{}.parseString(deck_string)
+    };
+    const auto& tm      = es.getTableManager();
+    const auto& ph      = es.runspec().phases();
+    const auto  tolcrit = 0.0;
+
+    auto rtepPtr = satfunc::getRawTableEndpoints(tm, ph, tolcrit);
+
+    // Water end-points
+    {
+        const auto swl  = rtepPtr.connate .water;
+        const auto swcr = rtepPtr.critical.water;
+        const auto swu  = rtepPtr.maximum .water;
+        BOOST_CHECK_CLOSE(swl [0], 0.2, 1.0e-10);
+        BOOST_CHECK_CLOSE(swcr[0], 0.2, 1.0e-10);
+        BOOST_CHECK_CLOSE(swu [0], 1.0, 1.0e-10);
+    }
+
+    // Gas end-points
+    {
+        const auto sgl  = rtepPtr.connate .gas;
+        const auto sgcr = rtepPtr.critical.gas;
+        const auto sgu  = rtepPtr.maximum .gas;
+        BOOST_CHECK_CLOSE(sgl [0], 0.0, 1.0e-10);
+        BOOST_CHECK_CLOSE(sgcr[0], 0.0, 1.0e-10);
+        BOOST_CHECK_CLOSE(sgu [0], 0.8, 1.0e-10);
+    }
 }
 
 namespace {
@@ -1847,6 +2104,47 @@ BOOST_AUTO_TEST_CASE(SatFunc_EndPts_Family_II_TolCrit_Large) {
 
 // =====================================================================
 
+BOOST_AUTO_TEST_CASE(Equivalent_FIP_Keys) {
+    std::string deck_string = R"(
+GRID
+
+PORO
+   200*0.15 /
+
+REGIONS
+
+FIPUNIT
+  100*1 100*2 /
+
+FIPUNIX
+  100*3 100*4 /
+)";
+
+    EclipseGrid grid { 10, 10, 2 };
+    const Deck deck = Parser{}.parseString(deck_string);
+
+    BOOST_CHECK_MESSAGE(deck.hasKeyword("FIPUNIT"),
+                        R"(Input deck must have "FIPUNIT" region set)");
+
+    BOOST_CHECK_MESSAGE(deck.hasKeyword("FIPUNIX"),
+                        R"(Input deck must have "FIPUNIX" region set)");
+
+    const FieldPropsManager fpm {
+        deck, Phases{true, true, true}, grid, TableManager()
+    };
+
+    const auto& fipuni = fpm.get_int("FIPUNI");
+    auto expect = std::vector<int>(100, 3);
+    {
+        const auto l2 = std::vector<int>(100, 4);
+        expect.insert(expect.end(), l2.begin(), l2.end());
+    };
+
+    // FIPUNI <=> FIPUNIX
+    BOOST_CHECK_EQUAL_COLLECTIONS(fipuni.begin(), fipuni.end(),
+                                  expect.begin(), expect.end());
+}
+
 BOOST_AUTO_TEST_CASE(GET_FIPXYZ) {
     std::string deck_string = R"(
 GRID
@@ -1893,7 +2191,6 @@ MULTZ
     Deck deck = Parser{}.parseString(deck_string);
     FieldPropsManager fpm(deck, Phases{true, true, true}, grid, TableManager());
 
-    auto multz = fpm.get_double("MULTZ");
     auto multz_global = fpm.get_global_double("MULTZ");
     for (std::size_t index = 0; index < multz_global.size(); index++)
         BOOST_CHECK_EQUAL(index * 1.0, multz_global[index]);
@@ -1926,7 +2223,6 @@ MULTZ
     Deck deck = Parser{}.parseString(deck_string);
     FieldPropsManager fpm(deck, Phases{true, true, true}, grid, TableManager());
 
-    auto multz = fpm.get_double("MULTZ");
     auto multz_global = fpm.get_global_double("MULTZ");
     for (std::size_t index = 0; index < multz_global.size(); index++)
         BOOST_CHECK_EQUAL(index * index * 1.0, multz_global[index]);
@@ -1961,7 +2257,6 @@ EQUALS
     Deck deck = Parser{}.parseString(deck_string);
     FieldPropsManager fpm(deck, Phases{true, true, true}, grid, TableManager());
 
-    auto multz = fpm.get_double("MULTZ");
     auto multz_global = fpm.get_global_double("MULTZ");
     for (std::size_t index = 0; index < multz_global.size(); index++) {
         if (index <= 8 || index >= 18)
@@ -1983,8 +2278,8 @@ FieldPropsManager make_fp(const std::string& deck_string) {
 }
 
 BOOST_AUTO_TEST_CASE(GLOBAL_UNSUPPORTED) {
-    // Operations involving two keywords can not update a global keyword.
-    std::string invalid_copy = R"(
+    // Operations involving two keywords cannot update a global keyword.
+    const std::string invalid_copy { R"(
 GRID
 
 PORO
@@ -1997,32 +2292,13 @@ MULTX
  27*1.0 /
 
 COPY
-   MULTX MULTZ
+   MULTX MULTZ /
 /
 
-)";
+)" };
 
-    // Can not update a global keyword with xxxxREG operations
-    std::string invalid_region = R"(
-GRID
-
-PORO
-   27*0.10 /
-
-ACTNUM
-   9*1 9*0 9*1 /
-
-MULTZ
- 27*1.0 /
-
-EQUALREG
-   MULTZ  2.0 1 /
-/
-
-)";
-
-    // Can not update a global keyword with the OPERATE keyword
-    std::string invalid_operate = R"(
+    // Cannot update a global keyword with the OPERATE keyword
+    const std::string invalid_operate { R"(
 GRID
 
 PORO
@@ -2035,15 +2311,153 @@ MULTZ
  27*1.0 /
 
 OPERATE
-   MULTZ 1  3   1  1   1   1  'MAXLIM'   MULTZ 0.50 /
+   MULTZ 1  3   1  1   1   1  'MAXLIM'   MULTX 0.50 /
 /
 
-)";
+)" };
 
-
-    BOOST_CHECK_THROW(make_fp(invalid_copy), OpmInputError);
-    BOOST_CHECK_THROW(make_fp(invalid_region), std::logic_error);
+    BOOST_CHECK_THROW(make_fp(invalid_copy), std::logic_error);
     BOOST_CHECK_THROW(make_fp(invalid_operate), std::logic_error);
+}
+
+BOOST_AUTO_TEST_CASE(GLOBAL_SUPPORTED) {
+    // Test COPY with global MULTZ
+    const std::string valid_copy { R"(
+GRID
+
+PORO
+   27*0.10 /
+
+ACTNUM
+   9*1 9*0 9*1 /
+
+MULTZ
+ 27*1.0 /
+
+COPY
+   MULTZ MULTX /
+/
+
+)" };
+
+    // Test COPY with global MULTZ with inactive cells
+    const std::string valid_copy_inactive { R"(
+GRID
+
+PORO
+   3*0 21*0.10 3*0/
+
+ACTNUM
+   9*1 9*0 9*1 /
+
+MULTZ
+ 27*1.0 /
+
+COPY
+   MULTZ MULTX /
+/
+
+)" };
+
+    // Test EQUALREG on global MULTZ
+    const std::string valid_region { R"(
+GRID
+
+PORO
+   27*0.10 /
+
+ACTNUM
+   9*1 9*0 9*1 /
+
+MULTZ
+ 27*1.0 /
+
+FLUXNUM
+   27*1 /
+
+EQUALREG
+   MULTZ 2.0 1 F/
+/
+
+)" };
+
+    // Test EQUALREG on global MULTZ with inactive cells
+    const std::string valid_region_inactive { R"(
+GRID
+
+PORO
+   3*0.0 21*0.10 3*0.0/
+
+ACTNUM
+   9*1 9*0 9*1 /
+
+MULTZ
+ 27*1.0 /
+
+FLUXNUM
+   27*1 /
+
+EQUALREG
+   MULTZ 2.0 1 F/
+/
+
+)" };
+    {
+        const auto& fp = make_fp(valid_copy);
+
+        const auto& multz_fp = fp.get_double_field_data("MULTZ");
+        const auto& multz_status = multz_fp.global_value_status;
+        const auto& multz_data = multz_fp.global_data;
+        const auto& multx_data = fp.get_global_double("MULTX");
+
+        BOOST_CHECK(multz_data);
+        BOOST_CHECK_EQUAL(multz_data->size(), multx_data.size());
+
+        for(auto i = std::size_t(0); i < multz_data->size(); ++i)
+            if ((*multz_status)[i] != value::status::uninitialized)
+                BOOST_CHECK_EQUAL((*multz_data)[i], multx_data[i]);
+    }
+    {
+        const auto& fp = make_fp(valid_copy_inactive);
+
+        const auto& multz_fp = fp.get_double_field_data("MULTZ");
+        const auto& multz_status = multz_fp.global_value_status;
+        const auto& multz_data = multz_fp.global_data;
+        const auto& multx_data = fp.get_global_double("MULTX");
+
+        BOOST_CHECK(multz_data);
+        BOOST_CHECK_EQUAL(multz_data->size(), multx_data.size());
+
+        for(auto i = std::size_t(0); i < multz_data->size(); ++i)
+            if ((*multz_status)[i] != value::status::uninitialized)
+                BOOST_CHECK_EQUAL((*multz_data)[i], multx_data[i]);
+    }
+    {
+        const auto& fp = make_fp(valid_region);
+
+        const auto& multz_data = fp.get_global_double("MULTZ");
+        std::vector<double> multz_expected = {
+            2, 2, 2, 2, 2, 2, 2, 2, 2,
+            1, 1, 1, 1, 1, 1, 1, 1, 1,
+            2, 2, 2, 2, 2, 2, 2, 2, 2};
+
+        for(auto i = std::size_t(0); i < multz_data.size(); ++i)
+            BOOST_CHECK_EQUAL(multz_data[i], multz_expected[i]);
+    }
+
+    {
+        const auto& fp = make_fp(valid_region_inactive);
+
+        const auto& multz_data = fp.get_global_double("MULTZ");
+        std::vector<double> multz_expected = {
+            0, 0, 0, 2, 2, 2, 2, 2, 2,
+            1, 1, 1, 1, 1, 1, 1, 1, 1,
+            2, 2, 2, 2, 2, 2, 0, 0, 0};
+
+        for(auto i = std::size_t(0); i < multz_data.size(); ++i)
+            if (i > 2 && i < 24)
+                BOOST_CHECK_EQUAL(multz_data[i], multz_expected[i]);
+    }
 }
 
 
@@ -2419,7 +2833,7 @@ MAXVALUE
 }
 
 BOOST_AUTO_TEST_CASE(REGION_OPERATION) {
-    std::string deck_string1 = R"(
+    const std::string deck_string1 { R"(
 GRID
 
 PORO
@@ -2445,18 +2859,27 @@ MULTIREG
 /
 
 COPYREG
-   PERMX  PERMY  1 M  /
-   PERMX  PERMY  2 M  /
-   PERMX  PERMY  3 M  /
+   PERMX  PERMY  1 M /
+   PERMX  PERMY  2 M /
+   PERMX  PERMY  3 M /
 /
 
-)";
+)" };
 
-    UnitSystem unit_system(UnitSystem::UnitType::UNIT_TYPE_METRIC);
-    auto to_si = [&unit_system](double raw_value) { return unit_system.to_si(UnitSystem::measure::permeability, raw_value); };
-    EclipseGrid grid(10,10, 2);
-    Deck deck1 = Parser{}.parseString(deck_string1);
-    FieldPropsManager fp(deck1, Phases{true, true, true}, grid, TableManager());
+    auto to_si = [unit_system = UnitSystem{UnitSystem::UnitType::UNIT_TYPE_METRIC}]
+        (double raw_value)
+    {
+        return unit_system.to_si(UnitSystem::measure::permeability, raw_value);
+    };
+
+    // Note: 'grid' must be mutable.
+    auto grid = EclipseGrid { 10, 10, 2 };
+
+    const auto deck1 = Parser{}.parseString(deck_string1);
+    const auto fp = FieldPropsManager {
+        deck1, Phases{true, true, true}, grid, TableManager{}
+    };
+
     const auto& permx = fp.get_double("PERMX");
     const auto& permy = fp.get_double("PERMY");
     const auto& multn = fp.get_int("MULTNUM");

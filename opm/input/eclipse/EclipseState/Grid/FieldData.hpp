@@ -22,45 +22,63 @@
 
 #include <opm/input/eclipse/EclipseState/Grid/Box.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/Keywords.hpp>
+
 #include <opm/input/eclipse/Deck/value_status.hpp>
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <functional>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <optional>
-#include <array>
-#include <algorithm>
-#include <stdexcept>
 
-namespace Opm
-{
-namespace Fieldprops
-{
-   template<typename T>
-    static void compress(std::vector<T>& data, const std::vector<bool>& active_map) {
-        std::size_t shift = 0;
-        for (std::size_t g = 0; g < active_map.size(); g++) {
-            if (active_map[g] && shift > 0) {
-                data[g - shift] = data[g];
-                continue;
-            }
+namespace Opm {
+    class KeywordLocation;
+} // namespace Opm
 
-            if (!active_map[g])
-                shift += 1;
-        }
+namespace Opm::Fieldprops {
+
+    template <typename T>
+    static void compress(std::vector<T>&          data,
+                         const std::vector<bool>& active_map,
+                         const std::size_t values_per_cell = 1)
+    {
+       const std::size_t num_cells = active_map.size();
+       if (data.size() != num_cells * values_per_cell) {
+           throw std::invalid_argument("Data size does not match the size of active_map times values_per_cell.");
+       }
+
+       std::size_t shift = 0;
+       for (std::size_t value_index = 0; value_index < values_per_cell; ++value_index) {
+           for (std::size_t g = 0; g < active_map.size(); ++g) {
+               if (active_map[g] && shift > 0) {
+                   const std::size_t orig_index = value_index * num_cells + g;
+                   data[orig_index - shift] = data[orig_index];
+                   continue;
+               }
+               if (!active_map[g]) {
+                   shift += 1;
+               }
+           }
+       }
 
         data.resize(data.size() - shift);
     }
 
-    template<typename T>
-    struct FieldData {
-        std::vector<T> data;
-        std::vector<value::status> value_status;
-        keywords::keyword_info<T> kw_info;
-        std::optional<std::vector<T>> global_data;
-        std::optional<std::vector<value::status>> global_value_status;
-        mutable bool all_set;
+    template <typename T>
+    struct FieldData
+    {
+        std::vector<T> data{};
+        std::vector<value::status> value_status{};
+        keywords::keyword_info<T> kw_info{};
+        std::optional<std::vector<T>> global_data{};
+        std::optional<std::vector<value::status>> global_value_status{std::nullopt};
+        mutable bool all_set{false};
 
-        bool operator==(const FieldData& other) const {
+        bool operator==(const FieldData& other) const
+        {
             return this->data == other.data &&
                    this->value_status == other.value_status &&
                    this->kw_info == other.kw_info &&
@@ -68,80 +86,158 @@ namespace Fieldprops
                    this->global_value_status == other.global_value_status;
         }
 
-
         FieldData() = default;
 
-        FieldData(const keywords::keyword_info<T>& info, std::size_t active_size, std::size_t global_size) :
-            data(std::vector<T>(active_size)),
-            value_status(active_size, value::status::uninitialized),
-            kw_info(info),
-            all_set(false)
+        FieldData(const keywords::keyword_info<T>& info,
+                  const std::size_t                active_size,
+                  const std::size_t                global_size)
+            : data        (active_size * info.num_value)
+            , value_status(active_size * info.num_value, value::status::uninitialized)
+            , kw_info     (info)
+            , all_set     (false)
         {
             if (global_size != 0) {
-                this->global_data = std::vector<T>(global_size);
-                this->global_value_status = std::vector<value::status>(global_size, value::status::uninitialized);
+                this->global_data.emplace(global_size * this->numValuePerCell());
+                this->global_value_status.emplace(global_size * this->numValuePerCell(), value::status::uninitialized);
             }
 
-            if (info.scalar_init)
-                this->default_assign( *info.scalar_init );
+            if (info.scalar_init) {
+                this->default_assign(*info.scalar_init);
+            }
         }
 
+        std::size_t numCells() const
+        {
+            return this->data.size() / this->numValuePerCell();
+        }
 
-        std::size_t size() const {
+        std::size_t dataSize() const
+        {
             return this->data.size();
         }
 
-        bool valid() const {
-            if (this->all_set)
+        std::size_t numValuePerCell() const
+        {
+            return this->kw_info.num_value;
+        }
+
+        bool valid() const
+        {
+            if (this->all_set) {
                 return true;
-
-            static const std::array<value::status,2> invalid_value = {value::status::uninitialized, value::status::empty_default};
-            const auto& it = std::find_first_of(this->value_status.begin(), this->value_status.end(), invalid_value.begin(), invalid_value.end());
-            this->all_set = (it == this->value_status.end());
-
-            return this->all_set;
-        }
-
-        bool valid_default() const {
-            return std::all_of( this->value_status.begin(), this->value_status.end(), [] (const value::status& status) {return status == value::status::valid_default; });
-        }
-
-
-        void compress(const std::vector<bool>& active_map) {
-            Fieldprops::compress(this->data, active_map);
-            Fieldprops::compress(this->value_status, active_map);
-        }
-
-        void copy(const FieldData<T>& src, const std::vector<Box::cell_index>& index_list) {
-            for (const auto& ci : index_list) {
-                this->data[ci.active_index] = src.data[ci.active_index];
-                this->value_status[ci.active_index] = src.value_status[ci.active_index];
             }
+
+            // Object is "valid" if the 'value_status' of every element is
+            // neither uninitialised nor empty.
+            return this->all_set =
+                std::none_of(this->value_status.begin(), this->value_status.end(),
+                             [](const value::status& status)
+                             {
+                                 return (status == value::status::uninitialized)
+                                     || (status == value::status::empty_default);
+                             });
         }
 
-        void default_assign(T value) {
+        bool valid_default() const
+        {
+            return std::all_of(this->value_status.begin(), this->value_status.end(),
+                               [](const value::status& status)
+                               {
+                                   return status == value::status::valid_default;
+                               });
+        }
+
+        void compress(const std::vector<bool>& active_map)
+        {
+            Fieldprops::compress(this->data, active_map, this->numValuePerCell());
+            Fieldprops::compress(this->value_status, active_map, this->numValuePerCell());
+        }
+
+        void checkInitialisedCopy(const FieldData&                    src,
+                                  const std::vector<Box::cell_index>& index_list,
+                                  const std::string&                  from,
+                                  const std::string&                  to,
+                                  const KeywordLocation&              loc,
+                                  const bool                          global = false);
+
+        void default_assign(T value)
+        {
             std::fill(this->data.begin(), this->data.end(), value);
-            std::fill(this->value_status.begin(), this->value_status.end(), value::status::valid_default);
+            std::fill(this->value_status.begin(),
+                      this->value_status.end(),
+                      value::status::valid_default);
 
             if (this->global_data) {
-                std::fill(this->global_data->begin(), this->global_data->end(), value);
-                std::fill(this->global_value_status->begin(), this->global_value_status->end(), value::status::valid_default);
+                std::fill(this->global_data->begin(),
+                          this->global_data->end(), value);
+
+                std::fill(this->global_value_status->begin(),
+                          this->global_value_status->end(),
+                          value::status::valid_default);
             }
         }
 
-        void default_assign(const std::vector<T>& src) {
-            if (src.size() != this->size())
-                throw std::invalid_argument("Size mismatch got: " + std::to_string(src.size()) + " expected: " + std::to_string(this->size()));
+        void default_assign(const std::vector<T>& src)
+        {
+            if (src.size() != this->dataSize()) {
+                throw std::invalid_argument {
+                    "Size mismatch got: " + std::to_string(src.size()) +
+                    ", expected: " + std::to_string(this->dataSize())
+                };
+            }
 
             std::copy(src.begin(), src.end(), this->data.begin());
-            std::fill(this->value_status.begin(), this->value_status.end(), value::status::valid_default);
+            std::fill(this->value_status.begin(), this->value_status.end(),
+                      value::status::valid_default);
         }
 
-        void default_update(const std::vector<T>& src) {
-            if (src.size() != this->size())
-                throw std::invalid_argument("Size mismatch got: " + std::to_string(src.size()) + " expected: " + std::to_string(this->size()));
+        void default_assign_global(const std::vector<T>& src)
+        {
+            if (!global_data) {
+                throw std::invalid_argument {
+                    "Cannot call default_assign_global on keyword with local storage"
+                };
+            }
 
-            for (std::size_t i = 0; i < src.size(); i++) {
+            if (src.size() != this->global_data->size()) {
+                throw std::invalid_argument {
+                    "Size mismatch got: " + std::to_string(src.size()) +
+                    ", expected: " + std::to_string(this->dataSize())
+                };
+            }
+
+            std::copy(src.begin(), src.end(), this->global_data->begin());
+            std::fill(this->global_value_status->begin(), this->global_value_status->end(),
+                      value::status::valid_default);
+        }
+
+        void update_local_from_global(std::function<std::size_t(std::size_t)> local_to_global)
+        {
+            if (!global_data) {
+                throw std::invalid_argument {
+                    "Cannot call update_local_from_gloabl on keyword with local storage"
+                };
+            }
+            std::size_t i{};
+            auto current_status = this->value_status.begin();
+            for(auto current = this->data.begin(); current != this->data.end(); ++current, ++current_status, ++i)
+            {
+                const auto& global = local_to_global(i);
+                *current = (*global_data)[global];
+                *current_status = (*global_value_status)[global];
+            }
+        }
+
+        void default_update(const std::vector<T>& src)
+        {
+            if (src.size() != this->dataSize()) {
+                throw std::invalid_argument {
+                    "Size mismatch got: " + std::to_string(src.size()) +
+                    ", expected: " + std::to_string(this->dataSize())
+                };
+            }
+
+            for (std::size_t i = 0; i < src.size(); ++i) {
                 if (!value::has_value(this->value_status[i])) {
                     this->value_status[i] = value::status::valid_default;
                     this->data[i] = src[i];
@@ -149,12 +245,15 @@ namespace Fieldprops
             }
         }
 
-        void update(std::size_t index, T value, value::status status) {
+        void update(const std::size_t index,
+                    T value,
+                    const value::status status)
+        {
             this->data[index] = value;
             this->value_status[index] = status;
         }
-
     };
-} // end namespace Fieldprops
-} // end namespace Opm
+
+} // namespace Opm::Fieldprops
+
 #endif // FIELD_DATA_HPP

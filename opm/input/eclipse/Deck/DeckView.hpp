@@ -22,6 +22,7 @@
 
 #include <opm/input/eclipse/Deck/DeckKeyword.hpp>
 
+#include <iterator>
 #include <unordered_map>
 
 namespace Opm {
@@ -32,26 +33,33 @@ public:
     typedef std::vector<std::reference_wrapper<const DeckKeyword>> storage_type;
 
 
-    struct Iterator : public storage_type::iterator {
-        Iterator(storage_type::const_iterator inner_iter) :
+    struct Iterator {
+        explicit Iterator(storage_type::const_iterator inner_iter) :
             inner(inner_iter)
         {}
 
-        const DeckKeyword& operator*()  { return this->inner->get(); }
-        const DeckKeyword* operator->() { return &this->inner->get(); }
+        using difference_type = storage_type::const_iterator::difference_type;
+        using iterator_category = storage_type::const_iterator::iterator_category;
+        using pointer = const DeckKeyword*;
+        using reference = const DeckKeyword&;
+        using value_type = DeckKeyword;
+
+        const DeckKeyword& operator*() const { return this->inner->get(); }
+        const DeckKeyword* operator->() const { return &this->inner->get(); }
 
         Iterator& operator++()    { ++this->inner; return *this; }
         Iterator  operator++(int) { auto tmp = *this; ++this->inner; return tmp; }
 
-
         Iterator& operator--()    { --this->inner; return *this; }
         Iterator  operator--(int) { auto tmp = *this; --this->inner; return tmp; }
 
-        Iterator::difference_type operator-(const Iterator &other) { return this->inner - other.inner; }
-        Iterator operator+(Iterator::difference_type shift) { Iterator tmp = *this; tmp.inner += shift; return tmp;}
+        Iterator::difference_type operator-(const Iterator &other) const { return this->inner - other.inner; }
+        Iterator operator+(Iterator::difference_type shift) const { Iterator tmp = *this; tmp.inner += shift; return tmp;}
 
         friend bool operator== (const Iterator& a, const Iterator& b) { return a.inner == b.inner; };
+        friend bool operator<= (const Iterator& a, const Iterator& b) { return a.inner <= b.inner; };
         friend bool operator!= (const Iterator& a, const Iterator& b) { return a.inner != b.inner; };
+
     private:
         storage_type::const_iterator inner;
     };
@@ -88,4 +96,15 @@ private:
 };
 
 }
+
+template<>
+struct std::iterator_traits<Opm::DeckView::Iterator>
+{
+    using difference_type = Opm::DeckView::Iterator::difference_type;
+    using iterator_category = Opm::DeckView::Iterator::iterator_category;
+    using pointer = Opm::DeckView::Iterator::pointer;
+    using reference = Opm::DeckView::Iterator::reference;
+    using value_type = Opm::DeckView::Iterator::value_type;
+};
+
 #endif

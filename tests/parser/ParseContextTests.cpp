@@ -17,10 +17,6 @@
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdexcept>
-#include <memory>
-#include <stdlib.h>
-#include <iostream>
 #define BOOST_TEST_MODULE ParseContextTests
 #include <boost/test/unit_test.hpp>
 
@@ -46,11 +42,12 @@
 #include <opm/input/eclipse/EclipseState/Runspec.hpp>
 #include <opm/input/eclipse/Schedule/Schedule.hpp>
 
+#include <cstdlib>
+#include <memory>
+#include <stdexcept>
+#include <tuple>
+
 using namespace Opm;
-
-
-
-
 
 BOOST_AUTO_TEST_CASE(TestUnkownKeyword) {
     const char * deck1 =
@@ -72,26 +69,26 @@ BOOST_AUTO_TEST_CASE(TestUnkownKeyword) {
 
 
     parser.addKeyword<ParserKeywords::DIMENS>();
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW( parser.parseString( deck1 , parseContext , errors) , OpmInputError);
 
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::IGNORE );
     BOOST_CHECK_NO_THROW( parser.parseString( deck1 , parseContext , errors) );
 
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::THROW_EXCEPTION );
-    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputErrorAction::IGNORE );
     BOOST_CHECK_THROW( parser.parseString( deck2 , parseContext , errors) , OpmInputError);
 
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::IGNORE );
-    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::IGNORE );
+    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputErrorAction::IGNORE );
     BOOST_CHECK_NO_THROW( parser.parseString( deck2 , parseContext , errors) );
 
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::IGNORE );
-    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::IGNORE );
+    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW( parser.parseString( deck2 , parseContext , errors) , OpmInputError);
 
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::IGNORE );
-    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::IGNORE );
+    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputErrorAction::IGNORE );
     BOOST_CHECK_NO_THROW( parser.parseString( deck2 , parseContext , errors) );
 }
 
@@ -110,7 +107,7 @@ BOOST_AUTO_TEST_CASE(TestUnkownKeywordII) {
 
 
     parser.addKeyword<ParserKeywords::DIMENS>();
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW( parser.parseString( deck1 , parseContext, errors ) , OpmInputError);
     parseContext.ignoreKeyword("RUNSPEC");
     BOOST_CHECK_NO_THROW( parser.parseString( deck1 , parseContext, errors ) );
@@ -137,11 +134,11 @@ BOOST_AUTO_TEST_CASE(Handle_extra_records) {
     parser.addKeyword<ParserKeywords::GRID>();
     BOOST_CHECK_THROW( parser.parseString( deck_string , parseContext, errors ) , OpmInputError );
 
-    parseContext.update(ParseContext::PARSE_EXTRA_RECORDS , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_EXTRA_RECORDS , InputErrorAction::IGNORE );
     parser.parseString( deck_string , parseContext, errors );
     BOOST_CHECK( parser.hasKeyword( "GRID" ) );
 
-    parseContext.update(ParseContext::PARSE_EXTRA_RECORDS , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_EXTRA_RECORDS , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW( parser.parseString( deck_string , parseContext, errors ) , OpmInputError);
 }
 
@@ -168,29 +165,12 @@ BOOST_AUTO_TEST_CASE(Handle_extra_records_2) {
     parser.addKeyword<ParserKeywords::GRID>();
     parser.addKeyword<ParserKeywords::DIMENS>();
 
-    parseContext.update(ParseContext::PARSE_EXTRA_RECORDS , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_EXTRA_RECORDS , InputErrorAction::IGNORE );
     BOOST_CHECK_THROW( parser.parseString( deck_string , parseContext, errors ), OpmInputError );
 }
 
 
 BOOST_AUTO_TEST_CASE(TestUnkownKeyword_DATA) {
-    const char * deck_string1 =
-        "RUNSPEC\n"
-        "\n"
-        "UNKNOWN1\n"
-        "\n"
-        "UNKNOWN2\n"
-        "  10 10 10 /n"
-        "\n"
-        "UNKNOWN3\n"
-        "  11 11 11 /n"
-        "/\n"
-        "\n"
-        "DIMENS\n"
-        "  12 12 12 /n"
-        "\n";
-
-
     const char * deck_string2 =
         "RUNSPEC\n"
         "\n"
@@ -218,9 +198,25 @@ BOOST_AUTO_TEST_CASE(TestUnkownKeyword_DATA) {
 
     parser.addKeyword<ParserKeywords::RUNSPEC>();
     parser.addKeyword<ParserKeywords::DIMENS>();
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::IGNORE );
-    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::IGNORE );
+    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputErrorAction::THROW_EXCEPTION );
     {
+        const char * deck_string1 =
+            "RUNSPEC\n"
+            "\n"
+            "UNKNOWN1\n"
+            "\n"
+            "UNKNOWN2\n"
+            "  10 10 10 /n"
+            "\n"
+            "UNKNOWN3\n"
+            "  11 11 11 /n"
+            "/\n"
+            "\n"
+            "DIMENS\n"
+            "  12 12 12 /n"
+            "\n";
+
         Deck deck = parser.parseString( deck_string1 , parseContext, errors );
         BOOST_CHECK( deck.hasKeyword( "RUNSPEC") );
         BOOST_CHECK( deck.hasKeyword( "DIMENS") );
@@ -246,18 +242,18 @@ BOOST_AUTO_TEST_CASE(TEST_UNKNOWN_OPERATE) {
     ParseContext parseContext;
     Parser parser(false);
 
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW( parser.parseString( deck , parseContext, errors ) , OpmInputError);
 
-    parseContext.update(ParseContext::PARSE_RANDOM_SLASH , InputError::IGNORE );
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_RANDOM_SLASH , InputErrorAction::IGNORE );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::IGNORE );
     parser.parseString( deck , parseContext, errors );
     BOOST_CHECK_NO_THROW( parser.parseString( deck , parseContext, errors ) );
 
     parser.addKeyword<ParserKeywords::OPERATE>();
     parser.parseString( deck , parseContext, errors );
-    parseContext.update(ParseContext::PARSE_RANDOM_SLASH , InputError::THROW_EXCEPTION );
-    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_RANDOM_SLASH , InputErrorAction::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_UNKNOWN_KEYWORD , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_NO_THROW( parser.parseString( deck , parseContext, errors ) );
 }
 
@@ -279,10 +275,10 @@ BOOST_AUTO_TEST_CASE( CheckMissingSizeKeyword) {
     parser.addKeyword<ParserKeywords::EQLDIMS>();
     parser.addKeyword<ParserKeywords::SOLUTION>();
 
-    parseContext.update( ParseContext::PARSE_MISSING_DIMS_KEYWORD , InputError::THROW_EXCEPTION );
+    parseContext.update( ParseContext::PARSE_MISSING_DIMS_KEYWORD , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW( parser.parseString( deck , parseContext, errors ) , OpmInputError);
 
-    parseContext.update( ParseContext::PARSE_MISSING_DIMS_KEYWORD , InputError::IGNORE );
+    parseContext.update( ParseContext::PARSE_MISSING_DIMS_KEYWORD , InputErrorAction::IGNORE );
     BOOST_CHECK_NO_THROW( parser.parseString( deck , parseContext, errors ) );
 }
 
@@ -310,14 +306,14 @@ BOOST_AUTO_TEST_CASE(TestRandomSlash) {
     parser.addKeyword<ParserKeywords::TSTEP>();
     parser.addKeyword<ParserKeywords::SCHEDULE>();
 
-    parseContext.update(ParseContext::PARSE_RANDOM_SLASH , InputError::THROW_EXCEPTION);
-    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputError::IGNORE);
+    parseContext.update(ParseContext::PARSE_RANDOM_SLASH , InputErrorAction::THROW_EXCEPTION);
+    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputErrorAction::IGNORE);
     BOOST_CHECK_THROW( parser.parseString( deck1 , parseContext, errors ) , OpmInputError);
     BOOST_CHECK_THROW( parser.parseString( deck2 , parseContext, errors ) , OpmInputError);
 
 
-    parseContext.update(ParseContext::PARSE_RANDOM_SLASH , InputError::IGNORE);
-    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputError::THROW_EXCEPTION);
+    parseContext.update(ParseContext::PARSE_RANDOM_SLASH , InputErrorAction::IGNORE);
+    parseContext.update(ParseContext::PARSE_RANDOM_TEXT , InputErrorAction::THROW_EXCEPTION);
     BOOST_CHECK_NO_THROW( parser.parseString( deck1 , parseContext, errors ) );
     BOOST_CHECK_NO_THROW( parser.parseString( deck2 , parseContext, errors ) );
 }
@@ -328,8 +324,8 @@ BOOST_AUTO_TEST_CASE(TestRandomSlash) {
 
 BOOST_AUTO_TEST_CASE(TestInvalidKey) {
     ParseContext parseContext;
-    BOOST_CHECK_THROW( parseContext.addKey("KEY*", InputError::THROW_EXCEPTION) , std::invalid_argument );
-    BOOST_CHECK_THROW( parseContext.addKey("KEY:", InputError::THROW_EXCEPTION) , std::invalid_argument );
+    BOOST_CHECK_THROW( parseContext.addKey("KEY*", InputErrorAction::THROW_EXCEPTION) , std::invalid_argument );
+    BOOST_CHECK_THROW( parseContext.addKey("KEY:", InputErrorAction::THROW_EXCEPTION) , std::invalid_argument );
 }
 
 
@@ -337,47 +333,47 @@ BOOST_AUTO_TEST_CASE(TestNew) {
     ParseContext parseContext;
 
     BOOST_CHECK_EQUAL( false , parseContext.hasKey("NO"));
-    parseContext.addKey("NEW_KEY", InputError::THROW_EXCEPTION);
+    parseContext.addKey("NEW_KEY", InputErrorAction::THROW_EXCEPTION);
     BOOST_CHECK_EQUAL( true , parseContext.hasKey("NEW_KEY"));
     BOOST_CHECK_THROW( parseContext.get("NO") , std::invalid_argument);
-    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputError::THROW_EXCEPTION );
-    parseContext.addKey("KEY2", InputError::THROW_EXCEPTION);
-    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputError::THROW_EXCEPTION );
+    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputErrorAction::THROW_EXCEPTION );
+    parseContext.addKey("KEY2", InputErrorAction::THROW_EXCEPTION);
+    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputErrorAction::THROW_EXCEPTION );
 
-    BOOST_CHECK_THROW( parseContext.updateKey("NO" , InputError::IGNORE) , std::invalid_argument);
+    BOOST_CHECK_THROW( parseContext.updateKey("NO" , InputErrorAction::IGNORE) , std::invalid_argument);
 
-    parseContext.updateKey("NEW_KEY" , InputError::WARN);
-    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputError::WARN );
+    parseContext.updateKey("NEW_KEY" , InputErrorAction::WARN);
+    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputErrorAction::WARN );
 
-    BOOST_CHECK_NO_THROW( parseContext.update("KEY2:NEW_KEY" , InputError::IGNORE));
-    BOOST_CHECK_NO_THROW( parseContext.update("UnknownKey" , InputError::IGNORE));
-    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputError::IGNORE );
-    BOOST_CHECK_EQUAL( parseContext.get("KEY2") , InputError::IGNORE );
+    BOOST_CHECK_NO_THROW( parseContext.update("KEY2:NEW_KEY" , InputErrorAction::IGNORE));
+    BOOST_CHECK_NO_THROW( parseContext.update("UnknownKey" , InputErrorAction::IGNORE));
+    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputErrorAction::IGNORE );
+    BOOST_CHECK_EQUAL( parseContext.get("KEY2") , InputErrorAction::IGNORE );
 
-    parseContext.addKey("SECRET_KEY", InputError::THROW_EXCEPTION);
-    parseContext.addKey("NEW_KEY2", InputError::THROW_EXCEPTION);
-    parseContext.addKey("NEW_KEY3", InputError::THROW_EXCEPTION);
-    parseContext.update("NEW_KEY*" , InputError::WARN);
-    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputError::WARN );
-    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY2") , InputError::WARN );
-    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY3") , InputError::WARN );
+    parseContext.addKey("SECRET_KEY", InputErrorAction::THROW_EXCEPTION);
+    parseContext.addKey("NEW_KEY2", InputErrorAction::THROW_EXCEPTION);
+    parseContext.addKey("NEW_KEY3", InputErrorAction::THROW_EXCEPTION);
+    parseContext.update("NEW_KEY*" , InputErrorAction::WARN);
+    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY") , InputErrorAction::WARN );
+    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY2") , InputErrorAction::WARN );
+    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY3") , InputErrorAction::WARN );
 
-    parseContext.update( InputError::IGNORE );
-    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY3")   , InputError::IGNORE );
-    BOOST_CHECK_EQUAL( parseContext.get("SECRET_KEY") , InputError::IGNORE );
+    parseContext.update( InputErrorAction::IGNORE );
+    BOOST_CHECK_EQUAL( parseContext.get("NEW_KEY3")   , InputErrorAction::IGNORE );
+    BOOST_CHECK_EQUAL( parseContext.get("SECRET_KEY") , InputErrorAction::IGNORE );
 
 
 }
 
 
 BOOST_AUTO_TEST_CASE( test_constructor_with_values) {
-    ParseContext parseContext( {{ParseContext::PARSE_RANDOM_SLASH , InputError::IGNORE},
-                {"UNSUPPORTED_*" , InputError::WARN},
-                    {"UNKNWON-IGNORED" , InputError::WARN}});
+    ParseContext parseContext( {{ParseContext::PARSE_RANDOM_SLASH , InputErrorAction::IGNORE},
+                {"UNSUPPORTED_*" , InputErrorAction::WARN},
+                    {"UNKNWON-IGNORED" , InputErrorAction::WARN}});
 
-    BOOST_CHECK_EQUAL( parseContext.get(ParseContext::PARSE_RANDOM_SLASH) , InputError::IGNORE );
-    BOOST_CHECK_EQUAL( parseContext.get(ParseContext::PARSE_RANDOM_TEXT) , InputError::THROW_EXCEPTION );
-    BOOST_CHECK_EQUAL( parseContext.get(ParseContext::UNSUPPORTED_INITIAL_THPRES) , InputError::WARN );
+    BOOST_CHECK_EQUAL( parseContext.get(ParseContext::PARSE_RANDOM_SLASH) , InputErrorAction::IGNORE );
+    BOOST_CHECK_EQUAL( parseContext.get(ParseContext::PARSE_RANDOM_TEXT) , InputErrorAction::THROW_EXCEPTION );
+    BOOST_CHECK_EQUAL( parseContext.get(ParseContext::UNSUPPORTED_INITIAL_THPRES) , InputErrorAction::WARN );
 }
 
 
@@ -394,19 +390,19 @@ BOOST_AUTO_TEST_CASE( test_too_much_data ) {
     ErrorGuard errors;
 
 
-    parseContext.update(ParseContext::PARSE_EXTRA_DATA , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_EXTRA_DATA , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW( parser.parseString( deckString , parseContext, errors ) , OpmInputError);
 
-    parseContext.update(ParseContext::PARSE_EXTRA_DATA , InputError::IGNORE );
-    auto deck = parser.parseString( deckString , parseContext, errors );
+    parseContext.update(ParseContext::PARSE_EXTRA_DATA , InputErrorAction::IGNORE );
+    std::ignore = parser.parseString( deckString , parseContext, errors );
 }
 
 
 BOOST_AUTO_TEST_CASE(test_1arg_constructor) {
     setenv("OPM_ERRORS_IGNORE", "PARSE_RANDOM_SLASH", 1);
     {
-        ParseContext ctx(InputError::WARN);
-        BOOST_CHECK_EQUAL(ctx.get(ParseContext::PARSE_RANDOM_SLASH), InputError::IGNORE);
+        ParseContext ctx(InputErrorAction::WARN);
+        BOOST_CHECK_EQUAL(ctx.get(ParseContext::PARSE_RANDOM_SLASH), InputErrorAction::IGNORE);
     }
 }
 
@@ -423,10 +419,10 @@ AQUCT
 
     BOOST_CHECK_THROW(parser.parseString(deckString, parseContext, errors), OpmInputError);
 
-    parseContext.update(ParseContext::PARSE_INVALID_KEYWORD_COMBINATION , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_INVALID_KEYWORD_COMBINATION , InputErrorAction::IGNORE );
     BOOST_CHECK_NO_THROW(parser.parseString(deckString, parseContext, errors));
 
-    parseContext.update(ParseContext::PARSE_INVALID_KEYWORD_COMBINATION , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_INVALID_KEYWORD_COMBINATION , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW(parser.parseString(deckString, parseContext, errors), OpmInputError);
 }
 
@@ -448,10 +444,10 @@ RTEMPVD
 
     BOOST_CHECK_THROW(parser.parseString(deckString, parseContext, errors), OpmInputError);
 
-    parseContext.update(ParseContext::PARSE_INVALID_KEYWORD_COMBINATION , InputError::IGNORE );
+    parseContext.update(ParseContext::PARSE_INVALID_KEYWORD_COMBINATION , InputErrorAction::IGNORE );
     BOOST_CHECK_NO_THROW(parser.parseString(deckString, parseContext, errors));
 
-    parseContext.update(ParseContext::PARSE_INVALID_KEYWORD_COMBINATION , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::PARSE_INVALID_KEYWORD_COMBINATION , InputErrorAction::THROW_EXCEPTION );
     BOOST_CHECK_THROW(parser.parseString(deckString, parseContext, errors), OpmInputError);
 }
 
@@ -491,7 +487,7 @@ BOOST_AUTO_TEST_CASE( test_invalid_wtemplate_config ) {
     Parser parser;
     ErrorGuard errors;
 
-    parseContext.update(ParseContext::SCHEDULE_INVALID_NAME , InputError::THROW_EXCEPTION );
+    parseContext.update(ParseContext::SCHEDULE_INVALID_NAME , InputErrorAction::THROW_EXCEPTION );
 
     std::vector < std::string > testSamples;
     std::string testSample;
@@ -705,10 +701,9 @@ BOOST_AUTO_TEST_CASE( test_invalid_wtemplate_config ) {
     )";
     testSamples.push_back(testSample);
 
-    std::string deckinput;
-    for (std::string sample : testSamples) {
+    for (const std::string& sample : testSamples) {
 
-        deckinput = defDeckString + sample;
+        const std::string deckinput = defDeckString + sample;
         auto deckUnSupported = parser.parseString( deckinput , parseContext, errors );
 
         auto python = std::make_shared<Python>();
@@ -755,11 +750,11 @@ RPTRUNSPEC
     ParseContext context;
     ErrorGuard error;
 
-    context.update(ParseContext::PARSE_LONG_KEYWORD, InputError::IGNORE);
+    context.update(ParseContext::PARSE_LONG_KEYWORD, InputErrorAction::IGNORE);
     auto deck = parser.parseString(deck_string, context, error);
     BOOST_CHECK( deck.hasKeyword("RPTRUNSP") );
 
-    context.update(ParseContext::PARSE_LONG_KEYWORD, InputError::THROW_EXCEPTION);
+    context.update(ParseContext::PARSE_LONG_KEYWORD, InputErrorAction::THROW_EXCEPTION);
     BOOST_CHECK_THROW( parser.parseString(deck_string, context, error), OpmInputError);
 }
 

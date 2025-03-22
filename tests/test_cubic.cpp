@@ -5,7 +5,7 @@
 // Created: Tue Dec  8 12:25:30 2009
 //
 // Author(s): Atgeirr F Rasmussen <atgeirr@sintef.no>
-//            Bård Skaflestad     <bard.skaflestad@sintef.no>
+//            BÃ¥rd Skaflestad     <bard.skaflestad@sintef.no>
 //
 // $Date$
 //
@@ -45,7 +45,7 @@
 #include <opm/common/utility/numeric/MonotCubicInterpolator.hpp>
 using namespace Opm;
 
-BOOST_AUTO_TEST_SUITE ()
+BOOST_AUTO_TEST_SUITE (Cubic)
 
 BOOST_AUTO_TEST_CASE (cubic)
 {

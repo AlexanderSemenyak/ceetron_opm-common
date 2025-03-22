@@ -1,6 +1,10 @@
-.TH CONVERTECL "1" "October 2022" "convertECL 2022.10" "User Commands"
+.TH CONVERTECL "1" "October 2024" "convertECL" "User Commands"
 .SH NAME
-convertECL \- Converter for Eclipse files (binary <-> formatted format)
+convertECL \- Converter for Eclipse files (binary <-> formatted
+format)
+.SH SYNOPSIS
+.B convertECL
+[\fI\,OPTIONS\/\fR] \fI\,ECL_DECK_FILENAME\/\fR
 .SH DESCRIPTION
 convertECL needs one argument which is the input file to be converted. If this is a binary file the output file will be formatted. If the input file is formatted the output will be binary.
 .PP
@@ -11,6 +15,10 @@ In addition, the program takes these options (which must be given before the arg
 \fB\-h\fR Print help and exit.
 .TP
 \fB\-l\fR list report step numbers in the selected restart file.
+.TP
+\fB-g\fR Convert file to grdecl format.
+.TP
+\fB-o\fR \fI\,OUTPUT_FILENAME\/\fR Specify output file name (only valid with grdecl option).
 .TP
 \fB\-i\fR Enforce IX standard on output file.
 .TP

@@ -18,25 +18,23 @@
 #ifndef RESTART_VALUE_HPP
 #define RESTART_VALUE_HPP
 
-#include <map>
-#include <string>
-#include <utility>
-#include <vector>
+#include <opm/output/data/Aquifer.hpp>
+#include <opm/output/data/Groups.hpp>
+#include <opm/output/data/Solution.hpp>
+#include <opm/output/data/Wells.hpp>
 
 #include <opm/input/eclipse/Units/UnitSystem.hpp>
 
-#include <opm/output/data/Aquifer.hpp>
-#include <opm/output/data/Solution.hpp>
-#include <opm/output/data/Wells.hpp>
-#include <opm/output/data/Groups.hpp>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace Opm {
 
     class RestartKey {
     public:
-
-        std::string key;
-        UnitSystem::measure dim;
+        std::string key{};
+        UnitSystem::measure dim{UnitSystem::measure::_count};
         bool required = false;
 
         RestartKey() = default;
@@ -54,12 +52,7 @@ namespace Opm {
               required(_required)
         {}
 
-        bool operator==(const RestartKey& key2) const
-        {
-            return key == key2.key &&
-                   dim == key2.dim &&
-                   required == key2.required;
-        }
+        bool operator==(const RestartKey& key2) const;
 
         template<class Serializer>
         void serializeOp(Serializer& serializer)
@@ -69,10 +62,7 @@ namespace Opm {
             serializer(required);
         }
 
-        static RestartKey serializationTestObject()
-        {
-            return RestartKey{"test_key", UnitSystem::measure::effective_Kh, true};
-        }
+        static RestartKey serializationTestObject();
     };
 
     /*
@@ -98,20 +88,15 @@ namespace Opm {
 
         bool hasExtra(const std::string& key) const;
         void addExtra(const std::string& key, UnitSystem::measure dimension, std::vector<double> data);
+        void addExtra(const std::string& key, UnitSystem::measure dimension, std::vector<float> data);
         void addExtra(const std::string& key, std::vector<double> data);
+        void addExtra(const std::string& key, std::vector<float> data);
         const std::vector<double>& getExtra(const std::string& key) const;
 
         void convertFromSI(const UnitSystem& units);
         void convertToSI(const UnitSystem& units);
 
-        bool operator==(const RestartValue& val2) const
-        {
-            return (this->solution == val2.solution)
-                && (this->wells == val2.wells)
-                && (this->grp_nwrk == val2.grp_nwrk)
-                && (this->aquifer == val2.aquifer)
-                && (this->extra == val2.extra);
-        }
+        bool operator==(const RestartValue& val2) const;
 
         template<class Serializer>
         void serializeOp(Serializer& serializer)
@@ -123,20 +108,7 @@ namespace Opm {
           serializer(extra);
         }
 
-        static RestartValue serializationTestObject()
-        {
-            auto res = RestartValue {
-                           data::Solution::serializationTestObject(),
-                           data::Wells::serializationTestObject(),
-                           data::GroupAndNetworkValues::serializationTestObject(),
-                           {{1, data::AquiferData::serializationTestObjectF()},
-                            {2, data::AquiferData::serializationTestObjectC()},
-                            {3, data::AquiferData::serializationTestObjectN()}}
-                       };
-            res.extra = {{RestartKey::serializationTestObject(), {1.0, 2.0}}};
-
-            return res;
-        }
+        static RestartValue serializationTestObject();
     };
 
 }

@@ -38,11 +38,16 @@
 #include <opm/input/eclipse/EclipseState/Grid/MULTREGTScanner.hpp>
 
 namespace Opm {
+    namespace data {
+        class Solution;
+    }
+
     template< typename > class GridProperty;
     class Fault;
     class FaultCollection;
     class DeckKeyword;
     class FieldPropsManager;
+    class Deck;
 
     class TransMult {
 
@@ -55,9 +60,19 @@ namespace Opm {
         double getMultiplier(size_t globalIndex, FaceDir::DirEnum faceDir) const;
         double getMultiplier(size_t i , size_t j , size_t k, FaceDir::DirEnum faceDir) const;
         double getRegionMultiplier( size_t globalCellIndex1, size_t globalCellIndex2, FaceDir::DirEnum faceDir) const;
+        double getRegionMultiplierNNC(std::size_t globalCellIndex1, std::size_t globalCellIndex2) const;
         void applyMULT(const std::vector<double>& srcMultProp, FaceDir::DirEnum faceDir);
         void applyMULTFLT(const FaultCollection& faults);
         void applyMULTFLT(const Fault& fault);
+        void applyNumericalAquifer(const std::vector<std::size_t>& aquifer_cells);
+
+        /// \brief Creates a solution object with all multipliers for output
+        /// \param active_cells If the model has no multipliers then this number is used as the size of
+        ///                     the array (containing 1) that are constructed in this case.
+        /// \param include_all_multminus If false only non-defaulted MULT?- arrays will
+        ///                              included. Otherwise even defaulted ones.
+        data::Solution convertToSimProps(std::size_t active_cells,
+                                         bool include_all_multminus) const;
 
         bool operator==(const TransMult& data) const;
 

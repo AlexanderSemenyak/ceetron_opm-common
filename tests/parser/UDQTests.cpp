@@ -1,14 +1,18 @@
 /*
-Copyright 2018 Statoil ASA.
+  Copyright 2018 Statoil ASA.
+
   This file is part of the Open Porous Media project (OPM).
+
   OPM is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
+
   OPM is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
+
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
@@ -20,13 +24,18 @@ Copyright 2018 Statoil ASA.
 #include <opm/common/utility/OpmInputError.hpp>
 #include <opm/common/utility/TimeService.hpp>
 
+#include <opm/io/eclipse/rst/udq.hpp>
+
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/FieldPropsManager.hpp>
 #include <opm/input/eclipse/EclipseState/Runspec.hpp>
 
 #include <opm/input/eclipse/Python/Python.hpp>
 
+#include <opm/input/eclipse/Schedule/MSW/SegmentMatcher.hpp>
+#include <opm/input/eclipse/Schedule/MSW/WellSegments.hpp>
 #include <opm/input/eclipse/Schedule/Schedule.hpp>
+#include <opm/input/eclipse/Schedule/ScheduleState.hpp>
 #include <opm/input/eclipse/Schedule/SummaryState.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQActive.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQAssign.hpp>
@@ -38,45 +47,139 @@ Copyright 2018 Statoil ASA.
 #include <opm/input/eclipse/Schedule/UDQ/UDQSet.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQState.hpp>
 #include <opm/input/eclipse/Schedule/Well/NameOrder.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
 #include <opm/input/eclipse/Schedule/Well/WellMatcher.hpp>
 
 #include <opm/input/eclipse/Utility/Typetools.hpp>
 
-#include <opm/input/eclipse/Parser/ErrorGuard.hpp>
-#include <opm/input/eclipse/Parser/ParseContext.hpp>
-#include <opm/input/eclipse/Parser/Parser.hpp>
-
 #include <opm/input/eclipse/Deck/Deck.hpp>
 #include <opm/input/eclipse/Deck/UDAValue.hpp>
 
+#include <opm/input/eclipse/Parser/ErrorGuard.hpp>
+#include <opm/input/eclipse/Parser/InputErrorAction.hpp>
+#include <opm/input/eclipse/Parser/ParseContext.hpp>
+#include <opm/input/eclipse/Parser/Parser.hpp>
+
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <memory>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace Opm;
 
 namespace {
-    Schedule make_schedule(const std::string& input) {
-        Parser parser;
-        auto python = std::make_shared<Python>();
-
-        auto deck = parser.parseString(input);
+    Schedule make_schedule(const std::string& input)
+    {
+        auto deck = Parser{}.parseString(input);
         if (deck.hasKeyword("DIMENS")) {
             EclipseState es(deck);
-            return Schedule(deck, es, python);
-        } else {
+            return { deck, es, std::make_shared<Python>() };
+        }
+        else {
             EclipseGrid grid(10,10,10);
-            TableManager table ( deck );
-            FieldPropsManager fp( deck, Phases{true, true, true}, grid, table);
-            Runspec runspec (deck);
-            return Schedule(deck, grid , fp, runspec, python);
+            TableManager table(deck);
+            FieldPropsManager fp(deck, Phases{true, true, true}, grid, table);
+            Runspec runspec(deck);
+
+            return { deck, grid, fp, runspec, std::make_shared<Python>() };
         }
     }
-} // namespace anonymous
+
+    Opm::Segment makeSegment(const int segmentNumber)
+    {
+        return { segmentNumber, 1, 1, 1.0, 0.0, 0.5, 0.01, 0.25, 1.23, true, 0.0, 0.0 };
+    }
+
+    std::shared_ptr<Opm::WellSegments> makeSegments(const int numSegments)
+    {
+        auto segments = std::vector<Opm::Segment>{};
+        segments.reserve(numSegments);
+
+        for (auto segment = 0; segment < numSegments; ++segment) {
+            segments.push_back(makeSegment(segment + 1));
+        }
+
+        return std::make_shared<Opm::WellSegments>
+            (Opm::WellSegments::CompPressureDrop::HFA, segments);
+    }
+
+    Opm::Well makeProducerWell(const std::string& wname,
+                               const std::size_t  insert,
+                               const int          numSegments)
+    {
+        auto w = Opm::Well {
+            wname, "G", 0, insert, 1, 2, {},
+            Opm::WellType { true, Opm::Phase::OIL }, // Oil producer
+            Opm::Well::ProducerCMode::ORAT,
+            Opm::Connection::Order::INPUT,
+            Opm::UnitSystem::newMETRIC(),
+            -3.0e+20,           // UDQ undefined
+            0.0, true, true, 0,
+            Opm::Well::GasInflowEquation::STD
+        };
+
+        if (numSegments > 0) {
+            w.updateSegments(makeSegments(numSegments));
+        }
+
+        return w;
+    }
+
+    Opm::Well makeInjectionWell(const std::string& wname,
+                                const std::size_t  insert,
+                                const int          numSegments)
+    {
+        auto w = Opm::Well {
+            wname, "G", 0, insert, 1, 2, {},
+            Opm::WellType { false, Opm::Phase::GAS }, // Gas injector
+            Opm::Well::ProducerCMode::ORAT,
+            Opm::Connection::Order::INPUT,
+            Opm::UnitSystem::newMETRIC(),
+            -3.0e+20,           // UDQ undefined
+            0.0, true, true, 0,
+            Opm::Well::GasInflowEquation::STD
+        };
+
+        if (numSegments > 0) {
+            w.updateSegments(makeSegments(numSegments));
+        }
+
+        return w;
+    }
+
+    // Collection of wells
+    //   OP-01: Producer, MSW, 20 segments (1 .. 20)
+    //   OP-02: Producer, MSW,  5 segments (1 ..  5)
+    //   OP-06: Producer, Standard well
+    //   OPROD: Producer, MSW, 2 segments (1 .. 2)
+    //
+    //   GI-01: Injector, MSW, 10 segments (1 .. 10)
+    //   GI-08: Injector, Standard well
+    //   I-45: Injector, MSW, 1 segment (1)
+    Opm::ScheduleState dynamicInputData()
+    {
+        auto block = Opm::ScheduleState { Opm::TimeService::now() };
+
+        block.wells.update(makeProducerWell("OP-01", 0, 20));
+        block.wells.update(makeProducerWell("OP-02", 1, 5));
+        block.wells.update(makeProducerWell("OP-06", 2, 0));
+        block.wells.update(makeProducerWell("OPROD", 3, 2));
+        block.wells.update(makeInjectionWell("GI-01", 4, 10));
+        block.wells.update(makeInjectionWell("GI-08", 5,  0));
+        block.wells.update(makeInjectionWell("I-45", 6, 1));
+
+        block.well_order.update(Opm::NameOrder {
+                "OP-01", "OP-02", "OP-06", "OPROD", "GI-01", "GI-08", "I-45",
+            });
+
+        return block;
+    }
+} // Anonymous namespace
 
 BOOST_AUTO_TEST_CASE(TYPE_COERCION) {
     BOOST_CHECK( UDQVarType::SCALAR == UDQ::coerce(UDQVarType::SCALAR, UDQVarType::SCALAR) );
@@ -91,16 +194,15 @@ BOOST_AUTO_TEST_CASE(TYPE_COERCION) {
     BOOST_CHECK_THROW( UDQ::coerce(UDQVarType::WELL_VAR, UDQVarType::GROUP_VAR), std::logic_error );
 }
 
-
 BOOST_AUTO_TEST_CASE(GROUP_VARIABLES)
 {
     KeywordLocation location;
     UDQParams udqp;
     UDQFunctionTable udqft;
     UDQDefine def_group(udqp, "GUOPRL", 0, location, {"(", "5000",  "-",  "GOPR",  "LOWER",  "*", "0.13",  "-",  "GOPR",  "UPPER",  "*", "0.15", ")" , "*",  "0.89"});
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, {}, st, udq_state);
+    UDQContext context(udqft, {}, {}, UDQContext::MatcherFactories{}, st, udq_state);
     double gopr_lower = 1234;
     double gopr_upper = 4321;
 
@@ -116,7 +218,40 @@ BOOST_AUTO_TEST_CASE(GROUP_VARIABLES)
     BOOST_CHECK(!empty_value);
 }
 
+BOOST_AUTO_TEST_CASE(SINGLE_SEGMENT_VARIABLES)
+{
+    const auto location = KeywordLocation{};
+    const auto udqp = UDQParams{};
+    const auto udqft = UDQFunctionTable{};
 
+    const auto def_seg = UDQDefine {
+        udqp, "SU_OFR", 0, location,
+        { "(", "5000", "-", "SOFR", "'OP-*'", "3", "*", "0.13", ")" , "*",  "0.89" }
+    };
+
+    auto st = SummaryState { TimeService::now(), udqp.undefinedValue() };
+    auto udq_state = UDQState { udqp.undefinedValue() };
+
+    auto factories = UDQContext::MatcherFactories{};
+    factories.segments = [sched_state = dynamicInputData()]()
+    {
+        return std::make_unique<SegmentMatcher>(sched_state);
+    };
+
+    auto context = UDQContext {
+        udqft, {}, {}, factories, st, udq_state
+    };
+
+    const auto sofr_p1_3 = 1234.0;
+    const auto sofr_p2_3 = 4321.0;
+
+    st.update_segment_var("OP-01", "SOFR", 3, sofr_p1_3);
+    st.update_segment_var("OP-02", "SOFR", 3, sofr_p2_3);
+
+    const auto res_seg = def_seg.eval(context);
+    BOOST_CHECK_EQUAL(res_seg("OP-01", 3).get(), (5000.0 - sofr_p1_3*0.13) * 0.89);
+    BOOST_CHECK_EQUAL(res_seg("OP-02", 3).get(), (5000.0 - sofr_p2_3*0.13) * 0.89);
+}
 
 BOOST_AUTO_TEST_CASE(SUBTRACT)
 {
@@ -126,9 +261,10 @@ BOOST_AUTO_TEST_CASE(SUBTRACT)
     UDQDefine def(udqp, "WU", 0, location, {"16", "-", "8", "-", "4", "-", "2", "-", "1"});
     UDQDefine scalar(udqp, "WU", 0, location, {"16"});
 
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"P1"})), st, udq_state);
+    WellMatcher wm(NameOrder({"P1"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("P1", "WOPR", 4);
     auto res = def.eval(context);
@@ -148,9 +284,10 @@ BOOST_AUTO_TEST_CASE(TEST)
     UDQDefine def3(udqp, "WUWI3",0, location, {"GOPR" , "FIELD", "-", "2.0", "*", "3"});
     UDQDefine def4(udqp, "WUWI3",0, location, {"FOPR" , "/",  "2"});
 
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"P1", "P2"})), st, udq_state);
+    WellMatcher wm(NameOrder({"P1", "P2"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_group_var("MAU", "GOPR", 4);
     st.update_group_var("XXX", "GOPR", 5);
@@ -175,27 +312,23 @@ BOOST_AUTO_TEST_CASE(TEST)
     BOOST_CHECK_EQUAL( res4["P1"].get(), 1.00 );
     BOOST_CHECK_EQUAL( res4["P2"].get(), 1.00 );
 
-    /*
-      This expression has a well set as target type, and involves group with
-      wildcard that is not supported by flow.
-    */
-    BOOST_CHECK_THROW( UDQDefine(udqp, "WUWI2",0, location, {"GOPR", "G*", "*", "2.0"}), OpmInputError);
+    // This expression has a well set as target type, and involves group
+    // with wildcard that is not supported by flow.
+    BOOST_CHECK_THROW( UDQDefine(udqp, "GUPR2",0, location, {"GOPR", "G*", "*", "2.0"}), OpmInputError);
 
-    /*
-      UDQVarType == BLOCK is not yet supported.
-    */
-    BOOST_CHECK_THROW( UDQDefine(udqp, "WUWI2",0, location, {"BPR", "1","1", "1", "*", "2.0"}), OpmInputError);
+    // UDQVarType == BLOCK is not yet supported.
+    BOOST_CHECK_THROW( UDQDefine(udqp, "BUPR2",0, location, {"BPR", "1","1", "1", "*", "2.0"}), std::invalid_argument);
 }
-
 
 BOOST_AUTO_TEST_CASE(MIX_SCALAR) {
     UDQFunctionTable udqft;
     UDQParams udqp;
     KeywordLocation location;
     UDQDefine def_add(udqp, "WU",0, location, {"WOPR", "+", "1"});
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"P1"})), st, udq_state);
+    WellMatcher wm(NameOrder({"P1"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("P1", "WOPR", 1);
 
@@ -203,36 +336,28 @@ BOOST_AUTO_TEST_CASE(MIX_SCALAR) {
     BOOST_CHECK_EQUAL( res_add["P1"].get() , 2);
 }
 
-
-BOOST_AUTO_TEST_CASE(UDQ_TABLE_EXCEPTION) {
-    UDQParams udqp;
-    KeywordLocation location;
-    BOOST_CHECK_THROW(UDQDefine(udqp, "WU",0, location, {"TUPRICE[WOPR]"}), std::invalid_argument);
-}
-
-
-
 BOOST_AUTO_TEST_CASE(UDQFieldSetTest) {
-    std::vector<std::string> wells = {"P1", "P2", "P3", "P4"};
     KeywordLocation location;
     UDQParams udqp;
     UDQFunctionTable udqft(udqp);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"P1", "P2", "P3", "P4"})), st, udq_state);
+    WellMatcher wm(NameOrder({"P1", "P2", "P3", "P4"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("P1", "WOPR", 1.0);
     st.update_well_var("P2", "WOPR", 2.0);
     st.update_well_var("P3", "WOPR", 3.0);
     st.update_well_var("P4", "WOPR", 4.0);
 
-    /*{
+#if 0
+    {
         UDQDefine def_fxxx(udqp, "FU_SCALAR", {"123"});
         auto fxxx_res = def_fxxx.eval(context);
         BOOST_CHECK_EQUAL( fxxx_res[0].get(), 123.0 );
         BOOST_CHECK( fxxx_res.var_type() == UDQVarType::FIELD_VAR);
     }
-    */
+#endif
 
     {
         UDQDefine def_fopr(udqp, "FUOPR",0, location, {"SUM", "(", "WOPR", ")"});
@@ -260,7 +385,6 @@ BOOST_AUTO_TEST_CASE(UDQWellSetNANTest) {
     BOOST_CHECK(ws.has("P1"));
     BOOST_CHECK(ws.has("P2"));
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQWellSetTest) {
     std::vector<std::string> wells = {"P1", "P2", "I1", "I2"};
@@ -305,7 +429,6 @@ BOOST_AUTO_TEST_CASE(UDQWellSetTest) {
     BOOST_CHECK_EQUAL(empty.size() , 0U);
 }
 
-
 BOOST_AUTO_TEST_CASE(UDQ_GROUP_TEST) {
     std::vector<std::string> groups = {"G1", "G2", "G3", "G4"};
     UDQSet gs = UDQSet::groups("NAME", groups);
@@ -320,9 +443,9 @@ BOOST_AUTO_TEST_CASE(UDQ_GROUP_TEST) {
         UDQParams udqp;
         UDQFunctionTable udqft(udqp);
         UDQDefine def_fopr(udqp, "FUOPR",0, location, {"SUM", "(", "GOPR", ")"});
-        SummaryState st(TimeService::now());
+        SummaryState st(TimeService::now(), udqp.undefinedValue());
         UDQState udq_state(udqp.undefinedValue());
-        UDQContext context(udqft, {}, st, udq_state);
+        UDQContext context(udqft, {}, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
         st.update_group_var("G1", "GOPR", 1.0);
         st.update_group_var("G2", "GOPR", 2.0);
@@ -335,17 +458,16 @@ BOOST_AUTO_TEST_CASE(UDQ_GROUP_TEST) {
     }
 }
 
-
-
 BOOST_AUTO_TEST_CASE(UDQ_DEFINETEST) {
     UDQParams udqp;
     UDQFunctionTable udqft(udqp);
     KeywordLocation location;
     {
         UDQDefine def(udqp, "WUBHP",0, location, {"WBHP"});
-        SummaryState st(TimeService::now());
+        SummaryState st(TimeService::now(), udqp.undefinedValue());
         UDQState udq_state(udqp.undefinedValue());
-        UDQContext context(udqft, WellMatcher(NameOrder({"W1", "W2", "W3"})), st, udq_state);
+        WellMatcher wm(NameOrder({"W1", "W2", "W3"}));
+        UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
         st.update_well_var("W1", "WBHP", 11);
         st.update_well_var("W2", "WBHP", 2);
@@ -362,10 +484,10 @@ BOOST_AUTO_TEST_CASE(UDQ_DEFINETEST) {
     }
     {
         UDQDefine def(udqp, "WUBHP",0, location, {"WBHP" , "'P*'"});
-        SummaryState st(TimeService::now());
+        SummaryState st(TimeService::now(), udqp.undefinedValue());
         UDQState udq_state(udqp.undefinedValue());
-        UDQContext context(udqft, WellMatcher(NameOrder({"I1", "I2", "P1", "P2"})), st, udq_state);
-
+        WellMatcher wm(NameOrder({"I1", "I2", "P1", "P2"}));
+        UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
         st.update_well_var("P1", "WBHP", 1);
         st.update_well_var("P2", "WBHP", 2);
@@ -380,9 +502,10 @@ BOOST_AUTO_TEST_CASE(UDQ_DEFINETEST) {
     }
     {
         UDQDefine def(udqp, "WUBHP",0, location, {"NINT" , "(", "WBHP", ")"});
-        SummaryState st(TimeService::now());
+        SummaryState st(TimeService::now(), udqp.undefinedValue());
         UDQState udq_state(udqp.undefinedValue());
-        UDQContext context(udqft, WellMatcher(NameOrder({"P1", "P2", "I1", "I2"})), st, udq_state);
+        WellMatcher wm(NameOrder({"P1", "P2", "I1", "I2"}));
+        UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
         st.update_well_var("P1", "WBHP", 4);
         st.update_well_var("P2", "WBHP", 3);
         st.update_well_var("I1", "WBHP", 2);
@@ -395,10 +518,6 @@ BOOST_AUTO_TEST_CASE(UDQ_DEFINETEST) {
         BOOST_CHECK_EQUAL( res["I2"].get(), 1 );
     }
 }
-
-
-
-
 
 BOOST_AUTO_TEST_CASE(KEYWORDS) {
     const std::string input = R"(
@@ -427,7 +546,6 @@ UDQPARAM
     BOOST_CHECK( r1 != r2 );
 }
 
-
 BOOST_AUTO_TEST_CASE(ENUM_CONVERSION) {
     BOOST_CHECK_THROW(UDQ::varType("WWCT"), std::invalid_argument);
     BOOST_CHECK_THROW(UDQ::varType("XUCT"), std::invalid_argument);
@@ -453,7 +571,6 @@ BOOST_AUTO_TEST_CASE(ENUM_CONVERSION) {
     BOOST_CHECK(UDQ::actionType("UNITS") == UDQAction::UNITS );
     BOOST_CHECK(UDQ::actionType("ASSIGN") == UDQAction::ASSIGN );
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQ_KEWYORDS) {
     const std::string input = R"(
@@ -536,10 +653,6 @@ UDQ
   BOOST_CHECK_THROW( make_schedule(input), std::exception);
 }
 
-
-
-
-
 BOOST_AUTO_TEST_CASE(UDQ_DEFINE_WITH_SLASH) {
     const std::string input = R"(
 UDQ
@@ -556,7 +669,6 @@ UDQ
     BOOST_CHECK_EQUAL_COLLECTIONS(data.begin(), data.end(),
                                   exp.begin(), exp.end());
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQ_ASSIGN_DATA) {
     const std::string input = R"(
@@ -590,19 +702,16 @@ ASSIGN WU2 8.0 /
     BOOST_CHECK_EQUAL( w2["P2"].get(), 8.0 );
 }
 
-
-
-
 BOOST_AUTO_TEST_CASE(UDQ_CONTEXT) {
-    SummaryState st(TimeService::now());
-    UDQFunctionTable func_table;
     UDQParams udqp;
+    UDQFunctionTable func_table;
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext ctx(func_table, {}, st, udq_state);
+    UDQContext ctx(func_table, {}, {}, UDQContext::MatcherFactories{}, st, udq_state);
     BOOST_CHECK_EQUAL(*ctx.get("JAN"), 1.0);
     BOOST_CHECK_THROW(ctx.get("NO_SUCH_KEY"), std::out_of_range);
 
-    for (std::string& key : std::vector<std::string>({"MSUMLINS", "MSUMNEWT", "NEWTON", "TCPU"}))
+    for (const std::string& key : std::vector<std::string>({"MSUMLINS", "MSUMNEWT", "NEWTON", "TCPU"}))
         BOOST_CHECK_NO_THROW( ctx.get(key) );
 
     st.update("SX:KEY", 1.0);
@@ -662,7 +771,6 @@ BOOST_AUTO_TEST_CASE(UDQ_SET) {
         }
     }
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQ_FUNCTION_TABLE) {
     UDQFunctionTable udqft;
@@ -812,7 +920,6 @@ BOOST_AUTO_TEST_CASE(CMP_FUNCTIONS) {
     }
 }
 
-
 BOOST_AUTO_TEST_CASE(CMP_FUNCTIONS2) {
     UDQFunctionTable udqft;
     auto arg1 = UDQSet::scalar("NAME", 0);
@@ -821,7 +928,6 @@ BOOST_AUTO_TEST_CASE(CMP_FUNCTIONS2) {
     auto eq = UDQBinaryFunction::EQ(0, arg1, arg2);
     BOOST_CHECK_EQUAL(eq[0].get(), 1);
 }
-
 
 BOOST_AUTO_TEST_CASE(ELEMENTAL_UNARY_FUNCTIONS) {
     UDQFunctionTable udqft;
@@ -930,7 +1036,6 @@ BOOST_AUTO_TEST_CASE(ELEMENTAL_UNARY_FUNCTIONS) {
     }
 }
 
-
 BOOST_AUTO_TEST_CASE(UNION_FUNCTIONS) {
     UDQFunctionTable udqft;
     UDQSet arg1("NAME", 5);
@@ -949,9 +1054,6 @@ BOOST_AUTO_TEST_CASE(UNION_FUNCTIONS) {
     BOOST_CHECK_EQUAL( 2, result[2].get() );
     BOOST_CHECK_EQUAL( 3, result[3].get() );
 }
-
-
-
 
 BOOST_AUTO_TEST_CASE(FUNCTIONS_INVALID_ARGUMENT) {
     UDQSet arg("NAME",3);
@@ -974,8 +1076,6 @@ BOOST_AUTO_TEST_CASE(UDQ_SET_DIV) {
     BOOST_CHECK_EQUAL( result[2].get(), 5);
     BOOST_CHECK_EQUAL( result[4].get(), 2);
 }
-
-
 
 BOOST_AUTO_TEST_CASE(UDQASSIGN_TEST) {
     UDQAssign as1("WUPR", std::vector<std::string>{}, 1.0, 1);
@@ -1001,16 +1101,70 @@ BOOST_AUTO_TEST_CASE(UDQASSIGN_TEST) {
     BOOST_CHECK(!res3["I2"].defined());
 }
 
+BOOST_AUTO_TEST_CASE(UDQASSIGN_NUMBERED_ITEMS_TEST) {
+    using Vsz = std::vector<std::size_t>;
+
+    const auto selector = UDQSet::EnumeratedItems {
+        "PROD01", Vsz { 1, 3, 5, 7 }
+    };
+
+    const auto as = UDQAssign {
+        "SUVTRIG", std::vector { selector }, 0.123, 42
+    };
+
+    const auto segments = std::vector {
+        UDQSet::EnumeratedItems { "PROD01", Vsz { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, } },
+        UDQSet::EnumeratedItems { "PROD02", Vsz { 1, 2, 3, 4, 5, } },
+        UDQSet::EnumeratedItems { "PROD06", Vsz { 2, 4, 6, 8, 10, } },
+        UDQSet::EnumeratedItems { "I-45", Vsz { 1, 2, 3, } },
+    };
+
+    const auto us = as.eval(segments);
+
+    BOOST_CHECK_EQUAL(us.size(), std::size_t{23});
+    BOOST_CHECK_CLOSE(us("PROD01", 1).get(), 0.123, 1.0e-8);
+    BOOST_CHECK_MESSAGE(!us("PROD01", 2).defined(), R"(SUVTRIG("PROD01", 2) must not be defined)");
+    BOOST_CHECK_CLOSE(us("PROD01", 3).get(), 0.123, 1.0e-8);
+    BOOST_CHECK_MESSAGE(!us("PROD01", 4).defined(), R"(SUVTRIG("PROD01", 4) must not be defined)");
+    BOOST_CHECK_CLOSE(us("PROD01", 5).get(), 0.123, 1.0e-8);
+    BOOST_CHECK_MESSAGE(!us("PROD01", 6).defined(), R"(SUVTRIG("PROD01", 6) must not be defined)");
+    BOOST_CHECK_CLOSE(us("PROD01", 7).get(), 0.123, 1.0e-8);
+    BOOST_CHECK_MESSAGE(!us("PROD01",  8).defined(), R"(SUVTRIG("PROD01", 8) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD01",  9).defined(), R"(SUVTRIG("PROD01", 9) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD01", 10).defined(), R"(SUVTRIG("PROD01", 10) must not be defined)");
+
+    BOOST_CHECK_MESSAGE(!us("PROD02", 1).defined(), R"(SUVTRIG("PROD02", 1) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD02", 2).defined(), R"(SUVTRIG("PROD02", 2) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD02", 3).defined(), R"(SUVTRIG("PROD02", 3) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD02", 4).defined(), R"(SUVTRIG("PROD02", 4) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD02", 5).defined(), R"(SUVTRIG("PROD02", 5) must not be defined)");
+
+    BOOST_CHECK_MESSAGE(!us("PROD06",  2).defined(), R"(SUVTRIG("PROD06", 2) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD06",  4).defined(), R"(SUVTRIG("PROD06", 4) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD06",  6).defined(), R"(SUVTRIG("PROD06", 6) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD06",  8).defined(), R"(SUVTRIG("PROD06", 8) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("PROD06", 10).defined(), R"(SUVTRIG("PROD06", 10) must not be defined)");
+
+    BOOST_CHECK_THROW(us("PROD06", 3).defined(), std::out_of_range);
+
+    BOOST_CHECK_MESSAGE(!us("I-45", 1).defined(), R"(SUVTRIG("I-45", 1) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("I-45", 2).defined(), R"(SUVTRIG("I-45", 2) must not be defined)");
+    BOOST_CHECK_MESSAGE(!us("I-45", 3).defined(), R"(SUVTRIG("I-45", 3) must not be defined)");
+
+    BOOST_CHECK_THROW(us("Hello", 42).defined(), std::out_of_range);
+}
+
 BOOST_AUTO_TEST_CASE(UDQ_POW_TEST) {
     KeywordLocation location;
     UDQFunctionTable udqft;
     UDQParams udqp;
     UDQDefine def_pow1(udqp, "WU",0, location, {"WOPR", "+", "WWPR", "*", "WGOR", "^", "WWIR"});
     UDQDefine def_pow2(udqp, "WU",0, location, {"(", "WOPR", "+", "WWPR", ")", "^", "(", "WOPR", "+" , "WGOR", "*", "WWIR", "-", "WBHP", ")"});
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    NameOrder wo; wo.add("P1");
-    UDQContext context(udqft, WellMatcher(wo), st, udq_state);
+    NameOrder wo{}; wo.add("P1");
+    WellMatcher wm(std::move(wo));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("P1", "WOPR", 1);
     st.update_well_var("P1", "WWPR", 2);
@@ -1029,9 +1183,10 @@ BOOST_AUTO_TEST_CASE(UDQ_CMP_TEST) {
     UDQFunctionTable udqft;
     UDQParams udqp;
     UDQDefine def_cmp(udqp, "WU",0, location, {"WOPR", ">", "WWPR", "+", "WGOR", "*", "WWIR"});
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"P1", "P2"})), st, udq_state);
+    WellMatcher wm(NameOrder({"P1", "P2"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("P1", "WOPR",  0);
     st.update_well_var("P1", "WWPR", 10);
@@ -1048,19 +1203,21 @@ BOOST_AUTO_TEST_CASE(UDQ_CMP_TEST) {
     BOOST_CHECK_EQUAL( res_cmp["P2"].get() , 0.0);
 }
 
-/*BOOST_AUTO_TEST_CASE(UDQPARSE_ERROR) {
+#if 0
+BOOST_AUTO_TEST_CASE(UDQPARSE_ERROR) {
     setUDQFunctionTable udqft;
     UDQDefine def1(udqft, "WUBHP", {"WWCT", "+"});
 }
-*/
+#endif
 
 BOOST_AUTO_TEST_CASE(UDQ_SCALAR_SET) {
     KeywordLocation location;
     UDQParams udqp;
     UDQFunctionTable udqft;
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"PA1", "PB2", "PC3", "PD4"})), st, udq_state);
+    WellMatcher wm(NameOrder({"PA1", "PB2", "PC3", "PD4"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("PA1", "WOPR", 1);
     st.update_well_var("PB2", "WOPR", 2);
@@ -1128,9 +1285,10 @@ BOOST_AUTO_TEST_CASE(UDQ_SORTD_NAN) {
     KeywordLocation location;
     UDQDefine def(udqp, "WUPR1" ,0, location, {"1", "/", "(", "WWIR", "'OP*'" , ")"});
     UDQDefine def_sort(udqp , "WUPR3",0, location, {"SORTD", "(", "WUPR1", ")" });
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"OP1", "OP2", "OP3", "OP4"})), st, udq_state);
+    WellMatcher wm(NameOrder({"OP1", "OP2", "OP3", "OP4"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("OP1", "WWIR", 1.0);
     st.update_well_var("OP2", "WWIR", 2.0);
@@ -1166,17 +1324,16 @@ BOOST_AUTO_TEST_CASE(UDQ_SORTD_NAN) {
     BOOST_CHECK( st.has_well_var("OP4", "WUPR3"));
 }
 
-
-
 BOOST_AUTO_TEST_CASE(UDQ_SORTA) {
     KeywordLocation location;
     UDQParams udqp;
     UDQFunctionTable udqft;
     UDQDefine def1(udqp, "WUPR1" ,0, location, {"1", "/", "(", "WWCT", "'OP*'", "+", "0.00001", ")"});
     UDQDefine def_sort(udqp , "WUPR3",0, location, {"SORTA", "(", "WUPR1", ")" });
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"OPL01", "OPL02", "OPU01", "OPU02"})), st, udq_state);
+    WellMatcher wm(NameOrder({"OPL01", "OPL02", "OPU01", "OPU02"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("OPL01", "WWCT", 0.7);
     st.update_well_var("OPL02", "WWCT", 0.8);
@@ -1192,8 +1349,6 @@ BOOST_AUTO_TEST_CASE(UDQ_SORTA) {
     BOOST_CHECK_EQUAL(res_sort["OPU01"].get() + res_sort["OPU02"].get(), 7.0);
 }
 
-
-
 BOOST_AUTO_TEST_CASE(UDQ_BASIC_MATH_TEST) {
     UDQParams udqp;
     UDQFunctionTable udqft;
@@ -1204,9 +1359,10 @@ BOOST_AUTO_TEST_CASE(UDQ_BASIC_MATH_TEST) {
     UDQDefine def_div(udqp, "WU2OPR",0, location, {"WOPR", "/", "WOPR"});
     UDQDefine def_muladd(udqp, "WUX",0, location, {"WOPR", "+", "WOPR", "*", "WOPR"});
     UDQDefine def_wuwct(udqp , "WUWCT",0, location, {"WWPR", "/", "(", "WOPR", "+", "WWPR", ")"});
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"P1", "P2", "P3", "P4"})), st, udq_state);
+    WellMatcher wm(NameOrder({"P1", "P2", "P3", "P4"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("P1", "WOPR", 1);
     st.update_well_var("P2", "WOPR", 2);
@@ -1266,9 +1422,10 @@ BOOST_AUTO_TEST_CASE(DECK_TEST) {
     UDQParams udqp;
     UDQFunctionTable udqft(udqp);
     UDQDefine def(udqp, "WUOPRL",0, location, {"(", "WOPR", "OP1", "-", "150", ")", "*", "0.90"});
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"OP1", "OP2", "OP3"})), st, udq_state);
+    WellMatcher wm(NameOrder({"OP1", "OP2", "OP3"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     st.update_well_var("OP1", "WOPR", 300);
     st.update_well_var("OP2", "WOPR", 3000);
@@ -1280,18 +1437,20 @@ BOOST_AUTO_TEST_CASE(DECK_TEST) {
         BOOST_CHECK( res[index].get() == (300 - 150)*0.90);
 }
 
+BOOST_AUTO_TEST_CASE(UDQPARSE_TEST1)
+{
+    const KeywordLocation location{};
+    const UDQParams udqp;
 
-BOOST_AUTO_TEST_CASE(UDQPARSE_TEST1) {
-    KeywordLocation location;
-    UDQParams udqp;
-    UDQDefine def1(udqp, "WUBHP",0, location, {"1/(WWCT", "'W1*')"});
-    BOOST_CHECK_EQUAL( def1.input_string() , "1 / (WWCT 'W1*')");
+    const UDQDefine def1(udqp, "WUBHP",0, location, {"1/(WWCT", "'W1*')"});
+    BOOST_CHECK_EQUAL(def1.input_string(), "1/(WWCT 'W1*')");
 
-    UDQDefine def2(udqp, "WUBHP",0, location, {"2 * (1",  "+" , "WBHP)"});
-    BOOST_CHECK_EQUAL( def2.input_string() , "2 * (1 + WBHP)");
+    const UDQDefine def2(udqp, "WUBHP",0, location, {"2 * (1",  "+" , "WBHP)"});
+    BOOST_CHECK_EQUAL( def2.input_string(), "2 * (1 + WBHP)");
 }
 
-BOOST_AUTO_TEST_CASE(INPUT_STRING_SCIENTIFIC_NOTATION) {
+BOOST_AUTO_TEST_CASE(INPUT_STRING_SCIENTIFIC_NOTATION)
+{
     const auto schedule = make_schedule(R"(
 SCHEDULE
 UDQ
@@ -1305,7 +1464,7 @@ DEFINE FU_THREE (3000000 + FU_ONE*1500000 + 1000000*FU_TWO)/365 /
     BOOST_CHECK_EQUAL(def.size(), 1ULL);
 
     const auto expect_input_string = std::string {
-        "(3E+06 + FU_ONE * 1.5E+06 + 1E+06 * FU_TWO) / 365"
+        "(3000000 + FU_ONE*1500000 + 1000000*FU_TWO)/365"
     };
 
     BOOST_CHECK_EQUAL(def[0].input_string(), expect_input_string);
@@ -1317,20 +1476,21 @@ BOOST_AUTO_TEST_CASE(UDQ_PARSE_ERROR) {
     ErrorGuard errors;
     std::vector<std::string> tokens = {"WBHP", "+"};
     KeywordLocation location;
-    parseContext.update(ParseContext::UDQ_PARSE_ERROR, InputError::IGNORE);
+    parseContext.update(ParseContext::UDQ_PARSE_ERROR, InputErrorAction::IGNORE);
     {
         UDQDefine def1(udqp, "WUBHP",0, location, tokens, parseContext, errors);
-        SummaryState st(TimeService::now());
+        SummaryState st(TimeService::now(), udqp.undefinedValue());
         UDQFunctionTable udqft(udqp);
         UDQState udq_state(udqp.undefinedValue());
-        UDQContext context(udqft, WellMatcher(NameOrder({"P1"})), st, udq_state);
+        WellMatcher wm(NameOrder({"P1"}));
+        UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
         st.update_well_var("P1", "WBHP", 1);
 
         auto res = def1.eval(context);
         BOOST_CHECK_EQUAL(res["P1"].get(), udqp.undefinedValue());
     }
 
-    parseContext.update(ParseContext::UDQ_PARSE_ERROR, InputError::THROW_EXCEPTION);
+    parseContext.update(ParseContext::UDQ_PARSE_ERROR, InputErrorAction::THROW_EXCEPTION);
     BOOST_CHECK_THROW( UDQDefine(udqp, "WUBHP",0, location, tokens, parseContext, errors), OpmInputError);
 }
 
@@ -1341,15 +1501,16 @@ BOOST_AUTO_TEST_CASE(UDQ_TYPE_ERROR) {
     std::vector<std::string> tokens1 = {"WBHP", "+", "1"};
     std::vector<std::string> tokens2 = {"SUM", "(", "WBHP", ")"};
     KeywordLocation location;
-    parseContext.update(ParseContext::UDQ_TYPE_ERROR, InputError::IGNORE);
+    parseContext.update(ParseContext::UDQ_TYPE_ERROR, InputErrorAction::IGNORE);
     {
         UDQDefine def1(udqp, "FUBHP",0, location, tokens1, parseContext, errors);
         UDQDefine def2(udqp, "WUBHP",0, location, tokens2, parseContext, errors);
 
-        SummaryState st(TimeService::now());
+        SummaryState st(TimeService::now(), udqp.undefinedValue());
         UDQFunctionTable udqft(udqp);
         UDQState udq_state(udqp.undefinedValue());
-        UDQContext context(udqft, WellMatcher(NameOrder({"P1", "P2"})), st, udq_state);
+        WellMatcher wm(NameOrder({"P1", "P2"}));
+        UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
         st.update_well_var("P1", "WBHP", 1);
         st.update_well_var("P2", "WBHP", 2);
 
@@ -1362,20 +1523,17 @@ BOOST_AUTO_TEST_CASE(UDQ_TYPE_ERROR) {
             BOOST_CHECK_EQUAL(res2[index].get(), 3);
     }
 
-    parseContext.update(ParseContext::UDQ_TYPE_ERROR, InputError::THROW_EXCEPTION);
+    parseContext.update(ParseContext::UDQ_TYPE_ERROR, InputErrorAction::THROW_EXCEPTION);
 
     // This fails because the well expression (WBHP + 1) is assigned to the field variable FUBHP
     BOOST_CHECK_THROW( UDQDefine(udqp, "FUBHP",0, location, tokens1, parseContext, errors), OpmInputError);
 }
 
-
-
-
 BOOST_AUTO_TEST_CASE(UDA_VALUE) {
     UDAValue value0;
-    BOOST_CHECK(value0.is<double>());
+    BOOST_CHECK(!value0.is<double>());
     BOOST_CHECK(!value0.is<std::string>());
-    BOOST_CHECK_EQUAL( value0.get<double>(), 0);
+    BOOST_CHECK_THROW( value0.get<double>(), std::invalid_argument);
     BOOST_CHECK_THROW( value0.get<std::string>(), std::invalid_argument);
     value0.update(10);
     BOOST_CHECK_EQUAL( value0.get<double>(), 10);
@@ -1403,10 +1561,7 @@ BOOST_AUTO_TEST_CASE(UDA_VALUE) {
     BOOST_CHECK_THROW( value2 *= 10, std::exception );
 }
 
-
-/*
-  The unit/dimension handling in the UDAvalue is hacky at best.
-*/
+// The unit/dimension handling in the UDAvalue is hacky at best.
 
 BOOST_AUTO_TEST_CASE(UDA_VALUE_DIM) {
     UDAValue value0(1);
@@ -1418,7 +1573,6 @@ BOOST_AUTO_TEST_CASE(UDA_VALUE_DIM) {
     BOOST_CHECK_EQUAL( value1.get<double>(), 1);
     BOOST_CHECK_EQUAL( value1.getSI(), 10);
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQ_INPUT_BASIC) {
     std::string deck_string = R"(
@@ -1472,7 +1626,6 @@ UDQ
     BOOST_CHECK( wubhp1.is<UDQAssign>() );
 }
 
-
 BOOST_AUTO_TEST_CASE(UDQ_INPUT_OVERWRITE) {
     std::string deck_string = R"(
 SCHEDULE
@@ -1510,7 +1663,6 @@ UDQ
     BOOST_CHECK_EQUAL(def2.input_string(), "MAX(WOPR)");
 }
 
-
 BOOST_AUTO_TEST_CASE(UDQ_USAGE) {
     UDQActive usage;
     UDQParams params;
@@ -1518,7 +1670,8 @@ BOOST_AUTO_TEST_CASE(UDQ_USAGE) {
     BOOST_CHECK_EQUAL( usage.iuad().size(), 0U );
 
     UDAValue uda1("WUX");
-    conf.add_assign(uda1.get<std::string>(), std::vector<std::string>{}, 100, 0);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    conf.add_assign(uda1.get<std::string>(), segmentMatcherFactory, std::vector<std::string>{}, 100, 0);
 
     const auto& iuad = usage.iuad();
     usage.update(conf, uda1, "W1", UDAControl::WCONPROD_ORAT);
@@ -1661,7 +1814,8 @@ BOOST_AUTO_TEST_CASE(IntegrationTest) {
 }
 
 namespace {
-    Schedule make_udq_schedule(const std::string& schedule_string) {
+    Schedule make_udq_schedule(const std::string& schedule_string)
+    {
 #include "data/integration_tests/udq2.data"
         deck_string += schedule_string;
         return make_schedule(deck_string);
@@ -1798,7 +1952,6 @@ WCONPROD
     }
 }
 
-
 BOOST_AUTO_TEST_CASE(UDQ_SCIENTIFIC_LITERAL) {
     std::string deck_string = R"(
 SCHEDULE
@@ -1811,15 +1964,14 @@ UDQ
     const auto& udq = schedule.getUDQConfig(0);
     UDQParams udqp;
     auto def0 = udq.definitions()[0];
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQFunctionTable udqft(udqp);
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, {}, st, udq_state);
+    UDQContext context(udqft, {}, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     auto res0 = def0.eval(context);
     BOOST_CHECK_CLOSE( res0[0].get(), -0.00125*3, 1e-6);
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQ_NEGATIVE_PREFIX_BASIC) {
     std::string deck_string = R"(
@@ -1837,10 +1989,10 @@ UDQ
     auto def0 = udq.definitions()[0];
     auto def1 = udq.definitions()[1];
     auto def2 = udq.definitions()[2];
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQFunctionTable udqft(udqp);
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, {}, st, udq_state);
+    UDQContext context(udqft, {}, {}, UDQContext::MatcherFactories{}, st, udq_state);
     const double fwpr = 7;
     const double fopr = 4;
     const double fgpr = 7;
@@ -1879,10 +2031,11 @@ UDQ
     UDQParams udqp;
     auto def0 = udq.definitions()[0];
     auto def1 = udq.definitions()[1];
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQFunctionTable udqft(udqp);
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, WellMatcher(NameOrder({"W1", "W2", "W3"})), st, udq_state);
+    WellMatcher wm(NameOrder({"W1", "W2", "W3"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
     st.update_well_var("W1", "WOPR", 1);
     st.update_well_var("W2", "WOPR", 2);
     st.update_well_var("W3", "WOPR", 3);
@@ -1902,7 +2055,6 @@ UDQ
     BOOST_CHECK_EQUAL( res1["W3"].get(), 0);
 }
 
-
 BOOST_AUTO_TEST_CASE(UDQ_UADD_PARSER) {
     std::string deck_string = R"(
 SCHEDULE
@@ -1918,10 +2070,12 @@ UDQ
 
     auto schedule = make_schedule(deck_string);
     const auto& udq = schedule.getUDQConfig(0);
-    SummaryState st(TimeService::now());
-    auto undefined_value =  udq.params().undefinedValue();
+    const auto undefined_value =  udq.params().undefinedValue();
+    SummaryState st(TimeService::now(), undefined_value);
     UDQState udq_state(undefined_value);
-    udq.eval(0, {}, st, udq_state);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, {}, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
 
     BOOST_CHECK_EQUAL( st.get("FU_UADD"), 12);   // 10 + 2
 
@@ -1930,7 +2084,6 @@ UDQ
     BOOST_CHECK_EQUAL( st.get("FU_UMUL"), 50);   // 10 * (2 + 3)
     BOOST_CHECK_EQUAL( st.get("FU_UMIN"), 5);    // min(10, 2+3)
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQ_DEFINE_ORDER) {
     std::string deck_string = R"(
@@ -1944,11 +2097,13 @@ DEFINE FU_PAR2 FU_PAR3 /
 )";
     auto schedule = make_schedule(deck_string);
     const auto& udq = schedule.getUDQConfig(0);
-    SummaryState st(TimeService::now());
-    auto undefined_value =  udq.params().undefinedValue();
+    const auto undefined_value =  udq.params().undefinedValue();
+    SummaryState st(TimeService::now(), undefined_value);
     UDQState udq_state(undefined_value);
     st.update("FMWPR", 100);
-    udq.eval(0, {}, st, udq_state);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, {}, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
 
     BOOST_CHECK_EQUAL(st.get("FU_PAR2"), 100);
 }
@@ -1963,17 +2118,16 @@ DEFINE FU_PAR3 FU_PAR2 + 1/
 )";
     auto schedule = make_schedule(deck_string);
     const auto& udq = schedule.getUDQConfig(0);
-    SummaryState st(TimeService::now());
-    auto undefined_value =  udq.params().undefinedValue();
+    const auto undefined_value =  udq.params().undefinedValue();
+    SummaryState st(TimeService::now(), undefined_value);
     UDQState udq_state(undefined_value);
-    udq.eval(0, {}, st, udq_state);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, {}, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
 
     BOOST_CHECK_EQUAL(st.get("FU_PAR2"), undefined_value);
     BOOST_CHECK_EQUAL(st.get("FU_PAR3"), undefined_value);
 }
-
-
-
 
 BOOST_AUTO_TEST_CASE(UDQSTATE) {
     double undefined_value = 1234;
@@ -2012,8 +2166,6 @@ BOOST_AUTO_TEST_CASE(UDQSTATE) {
     BOOST_CHECK_EQUAL(st.get_well_var("P1", "WUPR"), 75);
     BOOST_CHECK_EQUAL(st.get_well_var("P2", "WUPR"), undefined_value);
 }
-
-
 
 BOOST_AUTO_TEST_CASE(UDQ_UADD_PARSER2) {
     std::string deck_string = R"(
@@ -2065,9 +2217,9 @@ DEFINE WUGASRA  750000 - WGLIR '*' /
 )";
     auto schedule = make_schedule(deck_string);
     const auto& udq = schedule.getUDQConfig(0);
-    auto undefined_value =  udq.params().undefinedValue();
+    const auto undefined_value =  udq.params().undefinedValue();
     UDQState udq_state(undefined_value);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), undefined_value);
 
     st.update("TIMESTEP", 100);
     st.update("FMWPR", 100);
@@ -2080,21 +2232,35 @@ DEFINE WUGASRA  750000 - WGLIR '*' /
     st.update_well_var("W3", "WGLIR", 3);
 
     NameOrder wo({"W1", "W2", "W3"});
-    udq.eval(0, WellMatcher(wo), st, udq_state);
-    {
-        std::unordered_set<std::string> required_keys;
-        udq.required_summary(required_keys);
-        BOOST_CHECK_EQUAL( required_keys.size(), 7);
-        BOOST_CHECK_EQUAL( required_keys.count("TIMESTEP"), 1);
-        BOOST_CHECK_EQUAL( required_keys.count("FMWPR"), 1);
-        BOOST_CHECK_EQUAL( required_keys.count("WGLIR"), 1);
-        BOOST_CHECK_EQUAL( required_keys.count("FOPR"), 1);
-        BOOST_CHECK_EQUAL( required_keys.count("FMWIN"), 1);
-        BOOST_CHECK_EQUAL( required_keys.count("FMWPA"), 1);
-        BOOST_CHECK_EQUAL( required_keys.count("FMWIA"), 1);
-    }
-}
+    WellMatcher wm(std::move(wo));
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, wm, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
 
+    const auto required_keys = [&udq]()
+    {
+        auto keys = std::unordered_set<std::string>{};
+        udq.required_summary(keys);
+
+        auto required = std::vector<std::string>{ keys.begin(), keys.end() };
+        std::sort(required.begin(), required.end());
+
+        return required;
+    }();
+
+    const auto expected_keys = std::vector<std::string> {
+        "FMWIA",
+        "FMWIN",
+        "FMWPA",
+        "FMWPR",
+        "FOPR",
+        "TIMESTEP",
+        "WGLIR",
+    };
+
+    BOOST_CHECK_EQUAL_COLLECTIONS(required_keys.begin(), required_keys.end(),
+                                  expected_keys.begin(), expected_keys.end());
+}
 
 BOOST_AUTO_TEST_CASE(UDQ_UNDEFINED) {
     std::string deck_string = R"(
@@ -2271,9 +2437,9 @@ DEFINE FU_VAR91 GOPR TEST  /
 )";
     auto schedule = make_schedule(deck_string);
     const auto& udq = schedule.getUDQConfig(0);
-    auto undefined_value =  udq.params().undefinedValue();
+    const auto undefined_value =  udq.params().undefinedValue();
     UDQState udq_state(undefined_value);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), undefined_value);
     st.update("FMWPR", 100);
     st.update("FMWIN", 100);
     st.update("FMWPA", 100);
@@ -2285,10 +2451,10 @@ DEFINE FU_VAR91 GOPR TEST  /
     st.update_well_var("W3", "WGLIR", 3);
     st.update_group_var("TEST", "GOPR", 1);
 
-    udq.eval(0, {}, st, udq_state);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, {}, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
 }
-
-
 
 BOOST_AUTO_TEST_CASE(UDQ_KEY_ERROR) {
     std::string deck_string = R"(
@@ -2302,13 +2468,14 @@ UDQ
 
     auto schedule = make_schedule(deck_string);
     const auto& udq = schedule.getUDQConfig(0);
-    auto undefined_value =  udq.params().undefinedValue();
+    const auto undefined_value =  udq.params().undefinedValue();
     UDQState udq_state(undefined_value);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), undefined_value);
 
-    BOOST_CHECK_THROW(udq.eval(0, {}, st, udq_state), std::exception);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    BOOST_CHECK_THROW(udq.eval(0, {}, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state), std::exception);
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQ_ASSIGN) {
     std::string deck_string = R"(
@@ -2323,16 +2490,29 @@ UDQ
 
     auto schedule = make_schedule(deck_string);
     const auto& udq = schedule.getUDQConfig(0);
-    auto undefined_value =  udq.params().undefinedValue();
+    const auto undefined_value =  udq.params().undefinedValue();
     UDQState udq_state(undefined_value);
-    SummaryState st(TimeService::now());
-    {
-        std::unordered_set<std::string> required_keys;
-        udq.required_summary(required_keys);
-        BOOST_CHECK(required_keys.empty());
-    }
+    SummaryState st(TimeService::now(), undefined_value);
 
-    udq.eval(0, {}, st, udq_state);
+    const auto required_keys = [&udq]()
+    {
+        auto keys = std::unordered_set<std::string>{};
+        udq.required_summary(keys);
+
+        auto required = std::vector<std::string>{ keys.begin(), keys.end() };
+        std::sort(required.begin(), required.end());
+
+        return required;
+    }();
+
+    const auto expected_keys = std::vector<std::string> {};
+
+    BOOST_CHECK_EQUAL_COLLECTIONS(required_keys.begin(), required_keys.end(),
+                                  expected_keys.begin(), expected_keys.end());
+
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, {}, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
     BOOST_CHECK_EQUAL(st.get("FU_VAR1"), 10);
 }
 
@@ -2368,12 +2548,14 @@ TSTEP
 
     auto schedule = make_schedule(deck_string);
     UDQState udq_state(0);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), schedule.back().udq().params().undefinedValue());
 
     // Counting: 1,2,3,4,5
     for (std::size_t report_step = 0; report_step < 5; report_step++) {
         const auto& udq = schedule.getUDQConfig(report_step);
-        udq.eval(report_step, schedule.wellMatcher(report_step), st, udq_state);
+        auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+        auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+        udq.eval(report_step, schedule.wellMatcher(report_step), segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
         auto fu_var1 = st.get("FU_VAR1");
         BOOST_CHECK_EQUAL(fu_var1, report_step + 1);
     }
@@ -2381,7 +2563,9 @@ TSTEP
     // Reset to zero and count: 1,2,3,4,5
     for (std::size_t report_step = 5; report_step < 10; report_step++) {
         const auto& udq = schedule.getUDQConfig(report_step);
-        udq.eval(report_step, schedule.wellMatcher(report_step), st, udq_state);
+        auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+        auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+        udq.eval(report_step, schedule.wellMatcher(report_step), segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
         auto fu_var1 = st.get("FU_VAR1");
         BOOST_CHECK_EQUAL(fu_var1, report_step - 4);
     }
@@ -2389,7 +2573,9 @@ TSTEP
     // Reset to zero and stay there.
     for (std::size_t report_step = 10; report_step < 15; report_step++) {
         const auto& udq = schedule.getUDQConfig(report_step);
-        udq.eval(report_step, schedule.wellMatcher(report_step),st, udq_state);
+        auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+        auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+        udq.eval(report_step, schedule.wellMatcher(report_step), segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
         auto fu_var1 = st.get("FU_VAR1");
         BOOST_CHECK_EQUAL(fu_var1, 0);
     }
@@ -2406,20 +2592,18 @@ TSTEP
     BOOST_CHECK( unique[2].second == schedule.getUDQConfig(10));
 }
 
-
 BOOST_AUTO_TEST_CASE(UDQ_DIV_TEST) {
     KeywordLocation location;
     UDQFunctionTable udqft;
     UDQParams udqp;
     UDQDefine def_div(udqp, "FU",0, location, {"128", "/", "2", "/", "4", "/", "8"});
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), udqp.undefinedValue());
     UDQState udq_state(udqp.undefinedValue());
-    UDQContext context(udqft, {}, st, udq_state);
+    UDQContext context(udqft, {}, {}, UDQContext::MatcherFactories{}, st, udq_state);
 
     auto res_div = def_div.eval(context);
     BOOST_CHECK_EQUAL( res_div[0].get() , 2.0);
 }
-
 
 BOOST_AUTO_TEST_CASE(UDQ_LEADING_SIGN) {
     std::string deck_string = R"(
@@ -2439,10 +2623,12 @@ UDQ
 
     auto schedule = make_schedule(deck_string);
     UDQState udq_state(0);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), schedule.back().udq().params().undefinedValue());
 
     const auto& udq = schedule.getUDQConfig(0);
-    udq.eval(0, {}, st, udq_state);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, {}, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
     auto fu_var1 = st.get("FU_VAR1");
     auto fu_var2 = st.get("FU_VAR2");
     auto fu_var3 = st.get("FU_VAR3");
@@ -2480,14 +2666,16 @@ UDQ
 
     auto schedule = make_schedule(deck_string);
     UDQState udq_state(0);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), schedule.back().udq().params().undefinedValue());
     const auto& udq = schedule.getUDQConfig(0);
     st.update_well_var("P1", "WOPR", 1);
     st.update_well_var("P2", "WOPR", 2);
     st.update_well_var("P3", "WOPR", 3);
     st.update_well_var("P4", "WOPR", 4);
 
-    udq.eval(0, schedule.wellMatcher(0), st, udq_state);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, schedule.wellMatcher(0), segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
     auto fu_var1 = st.get("FU_VAR1");
     auto fu_var2 = st.get("FU_VAR2");
     auto fu_var3 = st.get("FU_VAR3");
@@ -2511,9 +2699,11 @@ UDQ
 
     auto schedule = make_schedule(deck_string);
     UDQState udq_state(0);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), schedule.back().udq().params().undefinedValue());
     const auto& udq = schedule.getUDQConfig(0);
-    udq.eval(0, schedule.wellMatcher(0), st, udq_state);
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, schedule.wellMatcher(0), segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
 
     auto fu_var1 = st.get("FU_VAR1");
     auto fu_var2 = st.get("FU_VAR2");
@@ -2577,39 +2767,34 @@ TSTEP
     BOOST_CHECK_THROW(make_schedule(invalid1), std::exception);
     auto schedule = make_schedule(valid);
     UDQState udq_state(0);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), schedule.back().udq().params().undefinedValue());
     UDQSet result = UDQSet::scalar("RES", 0);
     {
         const auto& udq = schedule.getUDQConfig(0);
         const auto& def = udq.define("FU_TIME");
-        BOOST_CHECK( udq_state.define(def.keyword(), def.status()));
+        BOOST_CHECK( udq_state.define(def.status()));
         udq_state.add_define(0, def.keyword(), result);
     }
     {
         const auto& udq = schedule.getUDQConfig(1);
         const auto& def = udq.define("FU_TIME");
-        BOOST_CHECK( !udq_state.define(def.keyword(), def.status()));
+        BOOST_CHECK( !udq_state.define(def.status()));
     }
     {
         const auto& udq = schedule.getUDQConfig(2);
         const auto& def = udq.define("FU_TIME");
-        BOOST_CHECK( !udq_state.define(def.keyword(), def.status()));
+        BOOST_CHECK( !udq_state.define(def.status()));
     }
     {
         const auto& udq = schedule.getUDQConfig(3);
         const auto& def = udq.define("FU_TIME");
-        BOOST_CHECK( udq_state.define(def.keyword(), def.status()));
+        BOOST_CHECK( udq_state.define(def.status()));
         udq_state.add_define(3, def.keyword(), result);
-    }
-    {
-        const auto& udq = schedule.getUDQConfig(4);
-        const auto& def = udq.define("FU_TIME");
-        BOOST_CHECK( !udq_state.define(def.keyword(), def.status()));
     }
     {
         const auto& udq = schedule.getUDQConfig(5);
         const auto& def = udq.define("FU_TIME");
-        BOOST_CHECK( !udq_state.define(def.keyword(), def.status()));
+        BOOST_CHECK( !udq_state.define(def.status()));
     }
 }
 
@@ -2634,13 +2819,12 @@ UDQ
 
 )";
 
-
-
     auto schedule = make_schedule(valid);
     UDQState udq_state(0);
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), schedule.back().udq().params().undefinedValue());
     UDQFunctionTable udqft;
-    UDQContext context(udqft, WellMatcher(NameOrder({"W1", "W2", "W3"})), st, udq_state);
+    WellMatcher wm(NameOrder({"W1", "W2", "W3"}));
+    UDQContext context(udqft, wm, {}, UDQContext::MatcherFactories{}, st, udq_state);
     st.update_well_var("W1", "WBHP", 400);
     st.update_well_var("W2", "WBHP", 300);
     st.update_well_var("W3", "WBHP", 200);
@@ -2648,7 +2832,7 @@ UDQ
     const auto& udq = schedule.getUDQConfig(1);
     {
         const auto& ass = udq.assign("FUBHPP1");
-        context.update_assign(1, "FUBHPP1", ass.eval());
+        context.update_assign("FUBHPP1", ass.eval());
     }
     const auto& def = udq.define("WUDELTA");
     auto res = def.eval(context);
@@ -2673,14 +2857,166 @@ UDQ
     BOOST_CHECK_NO_THROW( make_schedule(valid) );
 }
 
+BOOST_AUTO_TEST_CASE(UDQ_ASSIGN_RST)
+{
+    using namespace std::string_literals;
+
+    auto assignRst = RestartIO::RstUDQ { "WUBHP", "BARSA" };
+
+    assignRst.prepareValues();
+    assignRst.addValue(0, 0, 100.0);
+    assignRst.addEntityName("W1");
+
+    assignRst.addValue(1, 0, 123.4);
+    assignRst.addEntityName("W2");
+    assignRst.commitValues();
+
+    const auto report_step = std::size_t{2};
+
+    const auto assign = UDQAssign { "WUBHP", assignRst, report_step };
+    const auto res    = assign.eval(std::vector { "W1"s, "W2"s, "W3"s, });
+
+    BOOST_REQUIRE_EQUAL(res.size(), 3);
+
+    BOOST_CHECK_CLOSE(res["W1"].get(), 100.0, 1.0e-8);
+    BOOST_CHECK_CLOSE(res["W2"].get(), 123.4, 1.0e-8);
+
+    BOOST_CHECK_MESSAGE(! res["W3"].defined(),
+                        R"(Assignment UDQ set must NOT have a defined value for well "W3")");
+}
+
+BOOST_AUTO_TEST_CASE(UDQ_ASSIGN_SEGMENT)
+{
+    auto segmentMatcherFactory = [sched_state = dynamicInputData()]()
+    {
+        return std::make_unique<SegmentMatcher>(sched_state);
+    };
+
+    auto cfg = UDQConfig{};
+    cfg.add_assign("SUSPECT" , segmentMatcherFactory, {"OP-01"},      17.29,     42);
+    cfg.add_assign("SUSPECT" , segmentMatcherFactory, {"OP-02", "3"},  9.876e-5, 42);
+    cfg.add_assign("SUSPECT" , segmentMatcherFactory, {"OP-06", "1"},  0.123,    42); // Not an MSW
+    cfg.add_assign("SUPER"   , segmentMatcherFactory, {},              2.71828,  42);
+    cfg.add_assign("SUCCINCT", segmentMatcherFactory, {"OP*", "2"},    3.1415,   42);
+
+    {
+        const auto all = cfg.assignments();
+        BOOST_CHECK_EQUAL(all.size(), std::size_t{3}); // Three different SU* variables
+    }
+}
+
+BOOST_AUTO_TEST_CASE(UDQ_Update_SummaryState)
+{
+    const double udq_undefined = 987.6;
+    auto st = SummaryState { TimeService::now(), udq_undefined };
+
+    // P2 not yet online
+    st.update_well_var("P1", "WBHP",  42.0);
+    st.update_well_var("P2", "WBHP",   0.0);
+    st.update_well_var("P3", "WBHP", 121.2);
+
+    // BB not yet online
+    st.update_group_var("G1", "GOPR", 1222.0);
+    st.update_group_var("BB", "GOPR",    0.0);
+    st.update_group_var("AA", "GOPR", 1234.5);
+
+    // P2 not yet online
+    st.update_udq(UDQSet::wells("WUBAR", { "P1", "P3" }, 17.29));
+    BOOST_CHECK_CLOSE(st.get_well_var("P1", "WUBAR"),   17.29, 1.0e-8);
+    BOOST_CHECK_CLOSE(st.get_well_var("P2", "WUBAR"), udq_undefined, 1.0e-8);
+    BOOST_CHECK_CLOSE(st.get_well_var("P3", "WUBAR"),   17.29, 1.0e-8);
+
+    // BB not yet online
+    st.update_udq(UDQSet::groups("GUNDA_ST", { "G1", "AA" }, 652.44));
+    BOOST_CHECK_CLOSE(st.get_group_var("AA", "GUNDA_ST"),  652.44, 1.0e-8);
+    BOOST_CHECK_CLOSE(st.get_group_var("BB", "GUNDA_ST"), udq_undefined, 1.0e-8);
+    BOOST_CHECK_CLOSE(st.get_group_var("G1", "GUNDA_ST"),  652.44, 1.0e-8);
+}
+
+BOOST_AUTO_TEST_CASE(UDQ_WITH_UDT_FIELD)
+{
+    std::string valid = R"(
+SCHEDULE
+
+UDT
+ 'TU_FBHP' 1 /
+ 'LC'  100.0  500.0 / -- FOPR values
+       100.0  180.0 / -- FBHP values
+/
+/
+
+UDQ
+ASSIGN FU_FOPR 110.0 /
+ASSIGN FU_WBHP 0 /
+DEFINE FU_WBHP0 FU_WBHP /
+DEFINE FU_WBHP TU_FBHP[FU_FOPR] UMIN FU_WBHP0 /
+/
+
+)";
+
+    auto schedule = make_schedule(valid);
+    UDQState udq_state(0);
+    SummaryState st(TimeService::now(), schedule.back().udq().params().undefinedValue());
+    UDQFunctionTable udqft;
+    WellMatcher wm(NameOrder({"W1", "W2", "W3"}));
+    const auto& udq = schedule.getUDQConfig(0);
+    UDQContext context(udqft, wm, udq.tables(), UDQContext::MatcherFactories{}, st, udq_state);
+
+    const auto& ass = udq.assign("FU_WBHP");
+    context.update_assign("FU_WBHP", ass.eval());
+    const auto& ass2 = udq.assign("FU_FOPR");
+    context.update_assign("FU_FOPR", ass2.eval());
+    udq.define("FU_WBHP0");
+    const auto& def = udq.define("FU_WBHP");
+    auto res = def.eval(context);
+
+    BOOST_CHECK_EQUAL(res.size(), 1U);
+    BOOST_CHECK_EQUAL(res[0].get(), 100.0 + (180.0 - 100.0) * (110.0 - 100.0) / (500.0 - 100.0));
+}
+
+BOOST_AUTO_TEST_CASE(UDQ_WITH_UDT_WELL)
+{
+    std::string valid = R"(
+SCHEDULE
 
 
-BOOST_AUTO_TEST_CASE(UDQ_ASSIGN_RST) {
-    std::unordered_set<std::string> selector{"W1", "W2"};
-    UDQAssign assign("WUBHP", selector, 100, 2);
-    auto res = assign.eval( {"W1", "W2", "W3"});
-    BOOST_CHECK_EQUAL(res.size(), 3);
-    BOOST_CHECK_EQUAL(res["W1"].get(), 100);
-    BOOST_CHECK_EQUAL(res["W2"].get(), 100);
-    BOOST_CHECK_EQUAL(res["W3"].defined(), false);
+WELSPECS
+   'PROD1'   'TEST'   5   1  1*       'OIL'  2*      'STOP'  4* /
+   'PROD2'   'TEST'   1   1  1*       'OIL'  2*      'STOP'  4* /
+/
+
+UDT
+ 'TU_FBHP' 1 /
+ 'LC'  100.0  500.0 / -- FOPR values
+       100.0  180.0 / -- FBHP values
+/
+/
+
+UDQ
+ASSIGN WU_WBHP 0 /
+DEFINE WU_WBHP0 FU_WBHP /
+DEFINE WU_WBHP TU_FBHP[WOPR] UMIN WU_WBHP0 /
+/
+
+)";
+
+    auto schedule = make_schedule(valid);
+    UDQState udq_state(0);
+    SummaryState st(TimeService::now(), schedule.back().udq().params().undefinedValue());
+    UDQFunctionTable udqft;
+    WellMatcher wm(NameOrder({"PROD1", "PROD2"}));
+    const auto& udq = schedule.getUDQConfig(0);
+
+    st.update_well_var("PROD1", "WOPR", 120.0);
+    st.update_well_var("PROD2", "WOPR", 450.0);
+
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState {}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
+    udq.eval(0, wm, segmentMatcherFactory, regionSetMatcherFactory, st, udq_state);
+
+    const double wu_wbhp1 = st.get_well_var("PROD1", "WU_WBHP");
+    const double wu_wbhp2 = st.get_well_var("PROD2", "WU_WBHP");
+
+    BOOST_CHECK_EQUAL(wu_wbhp1, 100.0 + (180.0 - 100.0) * (120.0 - 100.0) / (500.0 - 100.0));
+    BOOST_CHECK_EQUAL(wu_wbhp2, 100.0 + (180.0 - 100.0) * (450.0 - 100.0) / (500.0 - 100.0));
 }

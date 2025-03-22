@@ -17,10 +17,8 @@
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #ifndef PYACTION_HPP_
 #define PYACTION_HPP_
-
 
 #include <functional>
 #include <memory>
@@ -38,7 +36,8 @@ class PyRunModule;
 namespace Action {
 class State;
 
-class PyAction {
+class PyAction
+{
 public:
    enum class RunCount {
        single,
@@ -65,16 +64,18 @@ public:
         serializer(module_file);
         serializer(m_active);
     }
+    static bool valid_keyword(const std::string& keyword);
 
 private:
     void update(bool result) const;
 
     mutable std::shared_ptr< PyRunModule > run_module;
     std::string m_name;
-    RunCount m_run_count;
+    RunCount m_run_count{RunCount::single};
     std::string module_file;
     mutable bool m_active = true;
 };
+
 }
 
 }

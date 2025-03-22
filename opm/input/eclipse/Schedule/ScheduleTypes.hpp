@@ -21,7 +21,7 @@
 #define OPM_SCHEDULE_TYPES_HPP
 
 #include <string>
-#include <opm/input/eclipse/EclipseState/Runspec.hpp>
+#include <opm/input/eclipse/EclipseState/Phase.hpp>
 
 namespace Opm {
 
@@ -70,12 +70,12 @@ public:
     }
 
 private:
-    bool  m_producer;
+    bool  m_producer{false};
     /*
       The injection_phase member is updated during the course of the simulation;
-      following each WCONINJE keyword the injection phase is updated. If an
+      following each WCONINJE keyword the injection phase is updated. If a
       producer is specified in the constructor the injection_phase is
-      initialzied to the welspecs phase. This is not wildly random - but the
+      initialized to the welspecs phase. This is not wildly random - but the
       injection_phase will not be meaningfull before an update(Phase) call has been
       issued.
 
@@ -84,8 +84,8 @@ private:
       used when initializing the well equations for a producer.
     */
 
-    Phase m_injection_phase;
-    Phase m_welspecs_phase;
+    Phase m_injection_phase{Phase::WATER};
+    Phase m_welspecs_phase{Phase::WATER};
 };
 
 }

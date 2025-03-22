@@ -37,6 +37,7 @@ namespace WTest {
 */
 
 namespace EclConfigReason {
+constexpr int NONE      =  1;
 constexpr int PHYSICAL   = 2;
 constexpr int ECONOMIC   = 3;
 constexpr int GCON       = 5;
@@ -45,34 +46,37 @@ constexpr int CONNECTION = 11;
 }
 
 namespace EclCloseReason {
+constexpr int NONE     = 1; // May be written to UNRST during history
 constexpr int PHYSICAL = 3;
 constexpr int ECONOMIC = 5;
 constexpr int GCON     = 6;
 constexpr int THPLimit = 9;
 }
 
+enum class Reason {
+    NONE     = 0,
+    PHYSICAL = 1,
+    ECONOMIC = 2,
+    GROUP = 4,
+    THP_DESIGN=8,
+    COMPLETION=16,
+};
+
 }
 
 class WellTestConfig {
 
 public:
-    enum class Reason {
-        PHYSICAL = 1,
-        ECONOMIC = 2,
-        GROUP = 4,
-        THP_DESIGN=8,
-        COMPLETION=16,
-    };
-
+    using Reason = WTest::Reason;
     struct WTESTWell {
-        std::string name;
-        int reasons;
-        double test_interval;
-        int num_test;
-        double startup_time;
+        std::string name{};
+        int reasons{};
+        double test_interval{};
+        int num_test{};
+        double startup_time{};
         // the related WTEST keywords is entered and will begin
         // taking effects since this report step
-        int begin_report_step;
+        int begin_report_step{};
 
         bool operator==(const WTESTWell& data) const {
             return name == data.name &&

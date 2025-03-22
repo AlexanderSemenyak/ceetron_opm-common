@@ -21,6 +21,7 @@
 #define OPM_OUTPUT_ECLIPSE_VECTOR_DOUBHEAD_HPP
 
 #include <vector>
+#include <cmath>
 
 namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems {
 
@@ -43,6 +44,8 @@ namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems 
         XxxMBE  = 18,
         XxxLCV  = 19,
         XxxWFL  = 20,
+
+        dRsDt   = 25,
 
         Netbalthpc    = 50,    //  Network balancing THP convergence limit (NETBALAN(4))
         Netbalint     = 51,    //  Network balancing interval (NETBALAN(1))
@@ -90,6 +93,12 @@ namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems 
 
         // Default => Use TSMINZ from TUNING
         constexpr auto NetBalMinTSDefault = 0.0;
+        
+        // Default => Let Simulator choose TSINIT
+        constexpr auto TSINITNoValue = 1.00000011;
+        inline bool TSINITHasNoValue(const double value) {
+            return std::abs(value - TSINITNoValue) < 1.0e-7; 
+        }
     }
 
 }}}} // Opm::RestartIO::Helpers::VectorItems

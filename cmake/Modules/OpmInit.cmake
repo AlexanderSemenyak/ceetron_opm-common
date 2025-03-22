@@ -110,6 +110,10 @@ macro (OpmInitDirVars)
   endif (COMMAND dir_hook)
 endmacro ()
 
+if("${CMAKE_SIZEOF_VOID_P}" LESS 8)
+  message(FATAL_ERROR "OPM will only work correctly on 64bit (or higher) systems!")
+endif()
+
 OpmInitProjVars ()
 OpmInitDirVars ()
 
@@ -142,14 +146,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# quadmath must be explicitly enabled
-# This needs to be in OpmInit as prereqs is called before OpmLibMain is included.
-option (USE_QUADMATH "Search for high precision floating point library (normally not used)" ON)
-if (NOT USE_QUADMATH)
-  set (CMAKE_DISABLE_FIND_PACKAGE_QuadMath TRUE)
-endif ()
-
 option (USE_SUPERLU "Use SuperLU direct solvers for AMG (if umfpack is not found)" ON)
 if (NOT USE_SUPERLU)
   set (CMAKE_DISABLE_FIND_PACKAGE_SuperLU TRUE)
 endif ()
+
+# Help HDF5 usage on rhel
+if(NOT DEFINED ENV{HDF5_ROOT} AND NOT HDF5_ROOT AND DEFINED ENV{MPI_INCLUDE} AND DEFINED ENV{MPI_LIB})
+  set(HDF5_ROOT $ENV{MPI_LIB})
+  set(HDF5_INCLUDE_DIR $ENV{MPI_INCLUDE})
+  set(HDF5_C_INCLUDE_DIR $ENV{MPI_INCLUDE})
+endif()

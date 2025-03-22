@@ -22,72 +22,46 @@
 
 #include <vector>
 #include <cstddef>
-#include <optional>
 
 #include <opm/input/eclipse/EclipseState/Grid/FaceDir.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/GridDims.hpp>
-
 
 namespace Opm {
 
 class Deck;
 class DeckRecord;
 
-enum class BCType {
-     RATE,
-     FREE,
-     DIRICHLET
-};
-
-enum class BCComponent {
-     OIL,
-     GAS,
-     WATER,
-     SOLVENT,
-     POLYMER,
-     NONE
-};
-
-
-class BCConfig {
+class BCConfig
+{
 public:
+    struct BCRegion
+    {
+        int index{};
+        int i1{}, i2{};
+        int j1{}, j2{};
+        int k1 {}, k2{};
+        FaceDir::DirEnum dir{FaceDir::Unknown};
 
-    struct BCFace {
-        int i1,i2;
-        int j1,j2;
-        int k1,k2;
-        BCType bctype;
-        FaceDir::DirEnum dir;
-        BCComponent component;
-        double rate;
-        std::optional<double> pressure;
-        std::optional<double> temperature;
+        BCRegion() = default;
+        explicit BCRegion(const DeckRecord& record, const GridDims& grid);
 
-        BCFace() = default;
-        explicit BCFace(const DeckRecord& record, const GridDims& grid);
+        static BCRegion serializationTestObject();
 
-        static BCFace serializationTestObject();
-
-        bool operator==(const BCFace& other) const;
+        bool operator==(const BCRegion& other) const;
 
         template<class Serializer>
         void serializeOp(Serializer& serializer)
         {
+            serializer(index);
             serializer(i1);
             serializer(i2);
             serializer(j1);
             serializer(j2);
             serializer(k1);
             serializer(k2);
-            serializer(bctype);
             serializer(dir);
-            serializer(component);
-            serializer(rate);
-            serializer(pressure);
-            serializer(temperature);
         }
     };
-
 
     BCConfig() = default;
     explicit BCConfig(const Deck& deck);
@@ -95,8 +69,8 @@ public:
     static BCConfig serializationTestObject();
 
     std::size_t size() const;
-    std::vector<BCFace>::const_iterator begin() const;
-    std::vector<BCFace>::const_iterator end() const;
+    std::vector<BCRegion>::const_iterator begin() const;
+    std::vector<BCRegion>::const_iterator end() const;
     bool operator==(const BCConfig& other) const;
 
     template<class Serializer>
@@ -106,11 +80,9 @@ public:
     }
 
 private:
-    std::vector<BCFace> m_faces;
+    std::vector<BCRegion> m_faces;
 };
 
 } //namespace Opm
-
-
 
 #endif

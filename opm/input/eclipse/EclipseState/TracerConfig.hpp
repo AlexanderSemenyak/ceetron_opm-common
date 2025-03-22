@@ -20,8 +20,10 @@
 #ifndef OPM_TRACER_CONFIG_HPP
 #define OPM_TRACER_CONFIG_HPP
 
-#include <opm/input/eclipse/EclipseState/Runspec.hpp>
+#include <opm/input/eclipse/EclipseState/Phase.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/TracerVdTable.hpp>
+
+#include <optional>
 
 namespace Opm {
 
@@ -40,6 +42,15 @@ public:
         std::optional<TracerVdTable> solution_tvdp;
         std::string fname() const {
             return this->name + "F";
+        }
+        std::string sname() const {
+            return this->name + "S";
+        }
+        std::string wellfname() const {
+            return "F" + this->name;
+        }
+        std::string wellsname() const {
+            return "S" + this->name;
         }
 
 

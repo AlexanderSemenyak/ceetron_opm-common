@@ -19,64 +19,58 @@
 #ifndef OPM_RUNSPEC_HPP
 #define OPM_RUNSPEC_HPP
 
-#include <iosfwd>
-#include <string>
+#include <opm/common/OpmLog/KeywordLocation.hpp>
+
+#include <opm/input/eclipse/EclipseState/EndpointScaling.hpp>
+#include <opm/input/eclipse/EclipseState/Phase.hpp>
+#include <opm/input/eclipse/EclipseState/Tables/Regdims.hpp>
+#include <opm/input/eclipse/EclipseState/Tables/Tabdims.hpp>
+
+#include <opm/input/eclipse/Schedule/Action/Actdims.hpp>
+#include <opm/input/eclipse/Schedule/UDQ/UDQParams.hpp>
+
+#include <bitset>
+#include <cstddef>
+#include <ctime>
 #include <optional>
 
-#include <opm/common/OpmLog/KeywordLocation.hpp>
-#include <opm/input/eclipse/EclipseState/Tables/Tabdims.hpp>
-#include <opm/input/eclipse/EclipseState/Tables/Regdims.hpp>
-#include <opm/input/eclipse/EclipseState/EndpointScaling.hpp>
-#include <opm/input/eclipse/Schedule/UDQ/UDQParams.hpp>
-#include <opm/input/eclipse/Schedule/Action/Actdims.hpp>
+namespace Opm {
+
+    class Deck;
+
+} // namespace Opm
 
 namespace Opm {
-class Deck;
 
+class Phases
+{
+public:
+    Phases() noexcept = default;
+    Phases(bool oil, bool gas, bool wat,
+           bool solvent = false,
+           bool polymer = false,
+           bool energy = false,
+           bool polymw = false,
+           bool foam = false,
+           bool brine = false,
+           bool zfraction = false) noexcept;
 
-enum class Phase {
-    OIL     = 0,
-    GAS     = 1,
-    WATER   = 2,
-    SOLVENT = 3,
-    POLYMER = 4,
-    ENERGY  = 5,
-    POLYMW  = 6,
-    FOAM  = 7,
-    BRINE = 8,
-    ZFRACTION  = 9
+    static Phases serializationTestObject();
 
-    // If you add more entries to this enum, remember to update NUM_PHASES_IN_ENUM below.
+    bool active( Phase ) const noexcept;
+    size_t size() const noexcept;
+
+    bool operator==(const Phases& data) const;
+
+    template<class Serializer>
+    void serializeOp(Serializer& serializer)
+    {
+        serializer(bits);
+    }
+
+private:
+    std::bitset<NUM_PHASES_IN_ENUM> bits;
 };
-
-constexpr int NUM_PHASES_IN_ENUM = static_cast<int>(Phase::ZFRACTION) + 1;  // Used to get correct size of the bitset in class Phases.
-
-Phase get_phase( const std::string& );
-std::ostream& operator<<( std::ostream&, const Phase& );
-
-class Phases {
-    public:
-        Phases() noexcept = default;
-        Phases( bool oil, bool gas, bool wat, bool solvent = false, bool polymer = false, bool energy = false,
-                bool polymw = false, bool foam = false, bool brine = false, bool zfraction = false ) noexcept;
-
-        static Phases serializationTestObject();
-
-        bool active( Phase ) const noexcept;
-        size_t size() const noexcept;
-
-        bool operator==(const Phases& data) const;
-
-        template<class Serializer>
-        void serializeOp(Serializer& serializer)
-        {
-            serializer(bits);
-        }
-
-    private:
-        std::bitset< NUM_PHASES_IN_ENUM > bits;
-};
-
 
 class Welldims {
 public:
@@ -115,7 +109,8 @@ public:
         return this->nDynWlistMax;
     }
 
-    const std::optional<KeywordLocation>& location() const {
+    const std::optional<KeywordLocation>& location() const
+    {
         return this->m_location;
     }
 
@@ -132,7 +127,6 @@ public:
         return this->location() == data.location() &&
             rst_cmp(*this, data);
     }
-
 
     template<class Serializer>
     void serializeOp(Serializer& serializer)
@@ -163,7 +157,6 @@ public:
 
     static WellSegmentDims serializationTestObject();
 
-
     int maxSegmentedWells() const
     {
         return this->nSegWellMax;
@@ -179,6 +172,11 @@ public:
         return this->nLatBranchMax;
     }
 
+    const std::optional<KeywordLocation>& location() const
+    {
+        return this->location_;
+    }
+
     bool operator==(const WellSegmentDims& data) const;
 
     template<class Serializer>
@@ -187,12 +185,14 @@ public:
         serializer(nSegWellMax);
         serializer(nSegmentMax);
         serializer(nLatBranchMax);
+        serializer(location_);
     }
 
 private:
     int nSegWellMax;
     int nSegmentMax;
     int nLatBranchMax;
+    std::optional<KeywordLocation> location_;
 };
 
 class NetworkDims {
@@ -217,7 +217,21 @@ public:
         return this->nMaxNoBranchesConToNode;
     }
 
-    bool active() const;
+    bool extendedNetwork() const
+    {
+        return this->type_ == Type::Extended;
+    }
+
+    bool standardNetwork() const
+    {
+        return this->type_ == Type::Standard;
+    }
+
+    bool active() const
+    {
+        return this->extendedNetwork()
+            || this->standardNetwork();
+    }
 
     bool operator==(const NetworkDims& data) const;
 
@@ -230,9 +244,12 @@ public:
     }
 
 private:
+    enum class Type { None, Extended, Standard, };
+
     int nMaxNoNodes;
     int nMaxNoBranches;
     int nMaxNoBranchesConToNode;
+    Type type_{ Type::None };
 };
 
 class AquiferDimensions {
@@ -314,6 +331,11 @@ public:
      */
     double curvatureCapPrs() const;
 
+    /*!
+     * \brief Wag hysteresis.
+     */
+    bool activeWag() const;
+
     bool operator==(const EclHysterConfig& data) const;
 
     template<class Serializer>
@@ -324,6 +346,7 @@ public:
         serializer(krHystMod);
         serializer(modParamTrappedValue);
         serializer(curvatureCapPrsValue);
+        serializer(activeWagHyst);
     }
 
 private:
@@ -337,6 +360,9 @@ private:
     double modParamTrappedValue { 0.1 };
     // curvature parameter for capillary pressure
     double curvatureCapPrsValue { 0.1 };
+
+    // enable WAG hysteresis
+    bool activeWagHyst  { false };
 };
 
 class SatFuncControls {
@@ -349,7 +375,9 @@ public:
 
     enum class KeywordFamily {
         Family_I,               // SGOF, SWOF, SLGOF
-        Family_II,              // SGFN, SOF{2,3}, SWFN
+        Family_II,              // SGFN, SOF{2,3}, SWFN, SGWFN
+        Family_III,             // GSF, WSF
+
         Undefined,
     };
 
@@ -417,7 +445,6 @@ private:
 
 class Tracers {
 public:
-
     Tracers() = default;
 
     explicit Tracers(const Deck& );
@@ -438,13 +465,13 @@ public:
     bool operator==(const Tracers& data) const;
 
 private:
-    int m_oil_tracers;
-    int m_water_tracers;
-    int m_gas_tracers;
-    int m_env_tracers;
-    bool diffusion_control;
-    int max_iter;
-    int min_iter;
+    int m_oil_tracers{};
+    int m_water_tracers{};
+    int m_gas_tracers{};
+    int m_env_tracers{};
+    bool diffusion_control{false};
+    int max_iter{};
+    int min_iter{};
     // The TRACERS keyword has some additional options which seem quite arcane,
     // for now not included here.
 };
@@ -473,8 +500,16 @@ public:
     const SatFuncControls& saturationFunctionControls() const noexcept;
     const Nupcol& nupcol() const noexcept;
     const Tracers& tracers() const;
+    bool compositionalMode() const;
+    size_t numComps() const;
     bool co2Storage() const noexcept;
+    bool co2Sol() const noexcept;
+    bool h2Sol() const noexcept;
+    bool h2Storage() const noexcept;
     bool micp() const noexcept;
+    bool mech() const noexcept;
+    bool temp() const noexcept;
+    bool compositional() const noexcept;
 
     bool operator==(const Runspec& data) const;
     static bool rst_cmp(const Runspec& full_state, const Runspec& rst_state);
@@ -496,31 +531,45 @@ public:
         serializer(m_actdims);
         serializer(m_sfuncctrl);
         serializer(m_nupcol);
+        serializer(m_tracers);
+        serializer(m_comps);
         serializer(m_co2storage);
+        serializer(m_co2sol);
+        serializer(m_h2sol);
+        serializer(m_h2storage);
         serializer(m_micp);
+        serializer(m_mech);
+        serializer(m_temp);
     }
 
 private:
-    std::time_t m_start_time;
-    Phases active_phases;
-    Tabdims m_tabdims;
-    Regdims m_regdims;
-    EndpointScaling endscale;
-    Welldims welldims;
-    WellSegmentDims wsegdims;
-    NetworkDims netwrkdims;
-    AquiferDimensions aquiferdims;
-    UDQParams udq_params;
-    EclHysterConfig hystpar;
-    Actdims m_actdims;
-    SatFuncControls m_sfuncctrl;
-    Nupcol m_nupcol;
-    Tracers m_tracers;
-    bool m_co2storage;
-    bool m_micp;
+    std::time_t m_start_time{};
+    Phases active_phases{};
+    Tabdims m_tabdims{};
+    Regdims m_regdims{};
+    EndpointScaling endscale{};
+    Welldims welldims{};
+    WellSegmentDims wsegdims{};
+    NetworkDims netwrkdims{};
+    AquiferDimensions aquiferdims{};
+    UDQParams udq_params{};
+    EclHysterConfig hystpar{};
+    Actdims m_actdims{};
+    SatFuncControls m_sfuncctrl{};
+    Nupcol m_nupcol{};
+    Tracers m_tracers{};
+    size_t m_comps = 0;
+    bool m_co2storage{false};
+    bool m_co2sol{false};
+    bool m_h2sol{false};
+    bool m_h2storage{false};
+    bool m_micp{false};
+    bool m_mech{false};
+    bool m_temp{false};
 };
 
+std::size_t declaredMaxRegionID(const Runspec& rspec);
 
-}
+} // namespace Opm
 
 #endif // OPM_RUNSPEC_HPP

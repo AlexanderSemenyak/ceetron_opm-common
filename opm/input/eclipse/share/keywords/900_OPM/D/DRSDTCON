@@ -1,0 +1,35 @@
+{
+  "name": "DRSDTCON",
+  "sections": [
+    "SCHEDULE"
+  ],
+  "size": {
+    "keyword": "TABDIMS",
+    "item": "NTPVT"
+  },
+  "items": [
+    {
+      "name": "DRSDT_MAX",
+      "value_type": "DOUBLE",
+      "dimension": "1",
+      "default": 0.04
+    },
+    {
+      "name": "PSI",
+      "value_type": "DOUBLE",
+      "dimension": "1",
+      "default": 0.34
+    },
+    {
+      "name": "OMEGA",
+      "value_type": "DOUBLE",
+      "dimension": "1",
+      "default": 3e-9
+    },
+    {
+      "name": "OPTION",
+      "value_type": "STRING",
+      "default": "ALL"
+    }
+  ]
+}

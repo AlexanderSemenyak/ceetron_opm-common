@@ -20,6 +20,7 @@
 #ifndef OPM_ROCK_CONFIG_HPP
 #define OPM_ROCK_CONFIG_HPP
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -28,36 +29,36 @@ namespace Opm {
 class Deck;
 class FieldPropsManager;
 
-class RockConfig {
+class RockConfig
+{
 public:
-
-enum class Hysteresis {
-    REVERS = 1,
-    IRREVERS = 2,
-    HYSTER = 3,
-    BOBERG = 4,
-    REVLIMIT = 5,
-    PALM_MAN = 6,
-    NONE = 7
-};
-
-
-struct RockComp {
-    double pref;
-    double compressibility;
-
-    RockComp() = default;
-    RockComp(double pref_arg, double comp_arg);
-    bool operator==(const RockComp& other) const;
-
-    template<class Serializer>
-    void serializeOp(Serializer& serializer)
+    enum class Hysteresis
     {
-        serializer(pref);
-        serializer(compressibility);
-    }
-};
+        REVERS = 1,
+        IRREVERS = 2,
+        HYSTER = 3,
+        BOBERG = 4,
+        REVLIMIT = 5,
+        PALM_MAN = 6,
+        NONE = 7,
+    };
 
+    struct RockComp
+    {
+        double pref{};
+        double compressibility{};
+
+        RockComp() = default;
+        RockComp(double pref_arg, double comp_arg);
+        bool operator==(const RockComp& other) const;
+
+        template<class Serializer>
+        void serializeOp(Serializer& serializer)
+        {
+            serializer(pref);
+            serializer(compressibility);
+        }
+    };
 
     RockConfig();
     RockConfig(const Deck& deck, const FieldPropsManager& fp);
@@ -67,9 +68,11 @@ struct RockComp {
     bool active() const;
     const std::vector<RockConfig::RockComp>& comp() const;
     const std::string& rocknum_property() const;
+    bool store() const;
     std::size_t num_rock_tables() const;
     Hysteresis hysteresis_mode() const;
     bool water_compaction() const;
+    bool dispersion() const;
 
     bool operator==(const RockConfig& other) const;
 
@@ -80,8 +83,10 @@ struct RockComp {
         serializer(m_comp);
         serializer(num_property);
         serializer(num_tables);
+        serializer(m_store);
         serializer(m_water_compaction);
         serializer(hyst_mode);
+        serializer(m_dispersion);
     }
 
 private:
@@ -89,10 +94,12 @@ private:
     std::vector<RockComp> m_comp;
     std::string num_property;
     std::size_t num_tables = 0;
+    bool m_store = false;
     bool m_water_compaction = false;
     Hysteresis hyst_mode = Hysteresis::REVERS;
+    bool m_dispersion = false;
 };
 
 } //namespace Opm
 
-#endif
+#endif // OPM_ROCK_CONFIG_HPP

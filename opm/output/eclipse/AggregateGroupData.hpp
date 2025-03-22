@@ -23,7 +23,7 @@
 #include <opm/output/eclipse/WindowedArray.hpp>
 
 #include <opm/io/eclipse/PaddedOutputString.hpp>
-#include <opm/input/eclipse/Schedule/Group/Group.hpp>
+
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -32,7 +32,6 @@
 namespace Opm {
 class Schedule;
 class SummaryState;
-//class Group;
 class UnitSystem;
 } // Opm
 
@@ -78,6 +77,7 @@ public:
                                                          "GWITH", "GGITH",
                                                          "GOPGR", "GWPGR", "GGPGR", "GVPGR",
                                                          "GOIGR", "GWIGR", "GGIGR",
+                                                         "GGCR", "GGIMR", "GGCT", "GGIMT",
                                                         };
 
     // Note: guide rates don't exist at the FIELD level.
@@ -87,6 +87,7 @@ public:
                                                          "FOPTS", "FGPTS",
                                                          "FWIT" , "FGIT" , "FVIT",
                                                          "FOPTH", "FWPTH", "FGPTH",
+                                                         "FGCR", "FGCT", "FGIMR", "FGIMT",
                                                          "FWITH", "FGITH"};
 
     const std::map<std::string, size_t> groupKeyToIndex = {
@@ -105,8 +106,12 @@ public:
                                                            {"GWIT", 15},
                                                            {"GGIT", 16},
                                                            {"GVIT", 17},
+                                                           {"GGCR", 19},
+                                                           {"GGCT", 21},
                                                            {"GOPP", 22},
                                                            {"GWPP", 23},
+                                                           {"GGIMR", 51},
+                                                           {"GGIMT", 52},
                                                            {"GOPTS", 73},
                                                            {"GGPTS", 74},
                                                            {"GOPGR", 85},
@@ -139,8 +144,12 @@ public:
                                                            {"FWIT", 15},
                                                            {"FGIT", 16},
                                                            {"FVIT", 17},
+                                                           {"FGCR", 19},
+                                                           {"FGCT", 21},
                                                            {"FOPP", 22},
                                                            {"FWPP", 23},
+                                                           {"FGIMR", 51},
+                                                           {"FGIMT", 52},
                                                            {"FOPTS", 73},
                                                            {"FGPTS", 74},
                                                            {"FOPTH", 135},

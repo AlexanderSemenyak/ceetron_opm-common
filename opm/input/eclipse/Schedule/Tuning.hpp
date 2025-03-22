@@ -20,6 +20,8 @@
 #ifndef OPM_TUNING_HPP
 #define OPM_TUNING_HPP
 
+#include <optional>
+
 namespace Opm {
 
     class NextStep {
@@ -39,8 +41,8 @@ namespace Opm {
         }
 
     private:
-        double next_tstep;
-        bool persist;
+        double next_tstep{};
+        bool persist{false};
     };
 
     struct Tuning {
@@ -49,7 +51,7 @@ namespace Opm {
         static Tuning serializationTestObject();
 
         // Record1
-        double TSINIT;
+        std::optional<double> TSINIT;
         double TSMAXZ;
         double TSMINZ;
         double TSMCHP;

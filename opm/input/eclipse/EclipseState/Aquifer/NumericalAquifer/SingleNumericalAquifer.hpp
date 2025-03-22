@@ -20,11 +20,12 @@
 #ifndef OPM_SINGLENUMERICALAQUIFER_HPP
 #define OPM_SINGLENUMERICALAQUIFER_HPP
 
-#include <vector>
-#include <set>
-
 #include <opm/input/eclipse/EclipseState/Aquifer/NumericalAquifer/NumericalAquiferConnection.hpp>
 #include <opm/input/eclipse/EclipseState/Aquifer/NumericalAquifer/NumericalAquiferCell.hpp>
+
+#include <set>
+#include <unordered_map>
+#include <vector>
 
 namespace Opm {
     class NNC;
@@ -40,7 +41,8 @@ namespace Opm {
         int pvtnum;
     };
 
-    class SingleNumericalAquifer {
+    class SingleNumericalAquifer
+    {
     public:
         explicit SingleNumericalAquifer(const size_t aqu_id);
         SingleNumericalAquifer() = default;
@@ -56,6 +58,8 @@ namespace Opm {
         size_t id() const;
         size_t numConnections() const;
         const NumericalAquiferCell* getCellPrt(size_t index) const;
+
+        void applyMinPV(const EclipseGrid& grid);
 
         std::unordered_map<size_t, AquiferCellProps> aquiferCellProps() const;
 
@@ -78,9 +82,9 @@ namespace Opm {
             // Because if it is a map, the id will be there
             // Then adding aquifer cells will be much easier with the
             // default constructor
-            size_t id_;
-            std::vector<NumericalAquiferCell> cells_;
-            std::vector<NumericalAquiferConnection> connections_;
+            size_t id_{};
+            std::vector<NumericalAquiferCell> cells_{};
+            std::vector<NumericalAquiferConnection> connections_{};
         };
 }
 

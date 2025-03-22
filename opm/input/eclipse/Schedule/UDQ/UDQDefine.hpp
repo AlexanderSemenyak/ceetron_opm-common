@@ -79,14 +79,20 @@ public:
 
     UDQSet eval(const UDQContext& context) const;
     const std::string& keyword() const;
-    const std::string& input_string() const;
+    const std::string& input_string() const { return this->input_string_; }
     const KeywordLocation& location() const;
     UDQVarType var_type() const;
     std::set<UDQTokenType> func_tokens() const;
     void required_summary(std::unordered_set<std::string>& summary_keys) const;
     void update_status(UDQUpdate update_status, std::size_t report_step);
     std::pair<UDQUpdate, std::size_t> status() const;
-    const std::vector<Opm::UDQToken> tokens() const;
+    const std::vector<Opm::UDQToken>& tokens() const;
+    void clear_next() const
+    {
+        if (this->m_update_status == UDQUpdate::NEXT) {
+            this->m_update_status = UDQUpdate::OFF;
+        }
+    }
 
     bool operator==(const UDQDefine& data) const;
 
@@ -94,23 +100,29 @@ public:
     void serializeOp(Serializer& serializer)
     {
         serializer(m_keyword);
+        serializer(input_string_);
+        serializer(m_tokens);
         serializer(ast);
         serializer(m_var_type);
         serializer(m_location);
-        serializer(string_data);
         serializer(m_update_status);
         serializer(m_report_step);
     }
 
 private:
-    std::string m_keyword;
-    std::vector<Opm::UDQToken> m_tokens;
-    std::shared_ptr<UDQASTNode> ast;
-    UDQVarType m_var_type;
-    KeywordLocation m_location;
-    std::size_t m_report_step;
-    UDQUpdate m_update_status;
-    mutable std::optional<std::string> string_data;
+    std::string m_keyword{};
+    std::string input_string_{};
+    std::vector<Opm::UDQToken> m_tokens{};
+    std::shared_ptr<UDQASTNode> ast{};
+    UDQVarType m_var_type{UDQVarType::NONE};
+    KeywordLocation m_location{};
+    std::size_t m_report_step{};
+    mutable UDQUpdate m_update_status{UDQUpdate::NEXT};
+
+    UDQSet scatter_scalar_value(UDQSet&& res, const UDQContext& context) const;
+    UDQSet scatter_scalar_well_value(const UDQContext& context, const std::optional<double>& value) const;
+    UDQSet scatter_scalar_group_value(const UDQContext& context, const std::optional<double>& value) const;
+    UDQSet scatter_scalar_segment_value(const UDQContext& context, const std::optional<double>& value) const;
 };
 
 } // Namespace Opm

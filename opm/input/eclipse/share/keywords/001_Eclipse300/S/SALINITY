@@ -1,0 +1,17 @@
+{
+  "name": "SALINITY",
+  "sections": [
+    "PROPS"
+  ],
+  "prohibits": [
+    "SALTMF"
+  ],
+  "size": 1,
+  "items": [
+    {
+      "name": "MOLALITY",
+      "value_type": "DOUBLE",
+      "default": 0.0
+    }
+  ]
+}

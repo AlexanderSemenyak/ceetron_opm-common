@@ -44,19 +44,29 @@ namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems 
 
     namespace SConn {
         enum index : std::vector<float>::size_type {
-            ConnTrans    =  0, // Connection transmissibility factor
+            EffConnTrans =  0, // Effective connection transmissibility factor (incl. ROCKTAB &c)
             Depth        =  1, // Connection centre depth
             Diameter     =  2, // Connection diameter
 
             EffectiveKH  =  3, // Effective Kh product of connection
             SkinFactor   =  4, // Skinfactor - item 'SKIN' from COMPDAT
-            item12       = 11, // Connection transmissibility factor
+
+            CFDenom = 6,    // Denominator in connection transmissibility
+                            // factor expression
+
+            ConnTrans = 11, // Connection transmissibility factor
 
             SegDistEnd   = 20, // Distance to end of connection in segment
             SegDistStart = 21, // Distance to start of connection in segment
 
             item30       = 29, // Unknown
             item31       = 30, // Unknown
+
+            EffectiveLength = 31, // Effective length of connection's perforation interval.
+
+            StaticDFacCorrCoeff = 37, // Static component of Forchheimer
+                                      // D-factor correlation.
+
             CFInDeck     = 40, // = 0 for connection factor not defined, = 1 for connection factor defined
         };
     } // SConn

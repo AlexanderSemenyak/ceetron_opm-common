@@ -3,7 +3,7 @@
 
   OPM is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 2 of the License, or
+  the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
   OPM is distributed in the hope that it will be useful,
@@ -22,17 +22,27 @@
 #define SERIALIZER_HPP
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
 #include <vector>
+
+#if HAVE_DUNE_COMMON
+namespace Dune { template<typename,int> class FieldVector; }
+#endif
+
+#if HAVE_DUNE_ISTL
+namespace Dune { template<typename,typename> class BlockVector; }
+#endif
 
 namespace Opm {
 namespace detail {
@@ -64,6 +74,15 @@ decltype(auto) make_variant(std::size_t index)
 template<class T>
 using remove_cvr_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
+template <typename T>
+struct is_unique_ptr : std::false_type {};
+
+template <typename T>
+struct is_unique_ptr<std::unique_ptr<T>> : std::true_type {};
+
+template <typename T>
+constexpr bool is_pod_v = std::is_standard_layout_v<T> && std::is_trivial_v<T>;
+
 } // namespace detail
 
 /*! \brief Class for (de-)serializing.
@@ -85,7 +104,11 @@ public:
     void operator()(const T& data)
     {
         if constexpr (is_ptr<T>::value) {
-            ptr(data);
+            if constexpr (detail::is_unique_ptr<T>::value) {
+                unique_ptr(data);
+            } else {
+                shared_ptr(data);
+            }
         } else if constexpr (is_pair_or_tuple<T>::value) {
             tuple(data);
         } else if constexpr (is_variant<T>::value) {
@@ -118,13 +141,16 @@ public:
     template<class T>
     void pack(const T& data)
     {
+        m_ptrmap.clear();
         m_op = Operation::PACKSIZE;
         m_packSize = 0;
         (*this)(data);
         m_position = 0;
         m_buffer.resize(m_packSize);
+        m_ptrmap.clear();
         m_op = Operation::PACK;
         (*this)(data);
+        m_ptrmap.clear();
     }
 
     //! \brief Call this to serialize data.
@@ -133,13 +159,16 @@ public:
     template<class... Args>
     void pack(const Args&... data)
     {
+        m_ptrmap.clear();
         m_op = Operation::PACKSIZE;
         m_packSize = 0;
         variadic_call(data...);
         m_position = 0;
         m_buffer.resize(m_packSize);
+        m_ptrmap.clear();
         m_op = Operation::PACK;
         variadic_call(data...);
+        m_ptrmap.clear();
     }
 
     //! \brief Call this to de-serialize data.
@@ -149,8 +178,10 @@ public:
     void unpack(T& data)
     {
         m_position = 0;
+        m_ptrmap.clear();
         m_op = Operation::UNPACK;
         (*this)(data);
+        m_ptrmap.clear();
     }
 
     //! \brief Call this to de-serialize data.
@@ -160,8 +191,10 @@ public:
     void unpack(Args&... data)
     {
         m_position = 0;
+        m_ptrmap.clear();
         m_op = Operation::UNPACK;
         variadic_call(data...);
+        m_ptrmap.clear();
     }
 
     //! \brief Returns current position in buffer.
@@ -180,28 +213,34 @@ protected:
     //! \brief Handler for vectors.
     //! \tparam T Type for vector elements
     //! \param data The vector to (de-)serialize
-    template <typename T>
-    void vector(const std::vector<T>& data)
+    template <typename Vector>
+    void vector(const Vector& data)
     {
-        if constexpr (std::is_pod_v<T>) {
+        if constexpr (detail::is_pod_v<typename Vector::value_type>) {
           if (m_op == Operation::PACKSIZE) {
               (*this)(data.size());
-              m_packSize += m_packer.packSize(data.data(), data.size());
+              if (data.size() > 0) {
+                  m_packSize += m_packer.packSize(data.data(), data.size());
+              }
           } else if (m_op == Operation::PACK) {
               (*this)(data.size());
-              m_packer.pack(data.data(), data.size(), m_buffer, m_position);
+              if (data.size() > 0) {
+                  m_packer.pack(data.data(), data.size(), m_buffer, m_position);
+              }
           } else if (m_op == Operation::UNPACK) {
               std::size_t size = 0;
               (*this)(size);
-              auto& data_mut = const_cast<std::vector<T>&>(data);
+              auto& data_mut = const_cast<Vector&>(data);
               data_mut.resize(size);
-              m_packer.unpack(data_mut.data(), size, m_buffer, m_position);
+              if (size > 0) {
+                  m_packer.unpack(data_mut.data(), size, m_buffer, m_position);
+              }
           }
         } else {
             if (m_op == Operation::UNPACK) {
                 std::size_t size = 0;
                 (*this)(size);
-                auto& data_mut = const_cast<std::vector<T>&>(data);
+                auto& data_mut = const_cast<Vector&>(data);
                 data_mut.resize(size);
                 std::for_each(data_mut.begin(), data_mut.end(), std::ref(*this));
             } else {
@@ -242,7 +281,7 @@ protected:
     {
         using T = typename Array::value_type;
 
-        if constexpr (std::is_pod_v<T>) {
+        if constexpr (detail::is_pod_v<T>) {
             if (m_op == Operation::PACKSIZE)
                 m_packSize += m_packer.packSize(data.data(), data.size());
             else if (m_op == Operation::PACK)
@@ -283,9 +322,11 @@ protected:
             bool has = false;
             (*this)(has);
             if (has) {
-                T res;
+                T res{};
                 (*this)(res);
                 const_cast<std::optional<T>&>(data) = res;
+            } else {
+                const_cast<std::optional<T>&>(data) = std::nullopt;
             }
         } else {
             (*this)(data.has_value());
@@ -316,7 +357,7 @@ protected:
             for (size_t i = 0; i < size; ++i) {
                 typename Map::value_type entry;
                 (*this)(entry);
-                data_mut.insert(entry);
+                data_mut.insert(std::move(entry));
             }
         } else {
             (*this)(data.size());
@@ -335,7 +376,7 @@ protected:
             (*this)(size);
             auto& data_mut = const_cast<Set&>(data);
             for (size_t i = 0; i < size; ++i) {
-                typename Set::value_type entry;
+                typename Set::value_type entry{};
                 (*this)(entry);
                 data_mut.insert(entry);
             }
@@ -385,6 +426,13 @@ protected:
     struct is_vector<std::vector<T1,Allocator>> {
         constexpr static bool value = true;
     };
+
+#if HAVE_DUNE_ISTL
+    template<class T1, class Allocator>
+    struct is_vector<Dune::BlockVector<T1,Allocator>> {
+        constexpr static bool value = true;
+    };
+#endif
 
     //! \brief Predicate for detecting variants.
     template<class T>
@@ -483,6 +531,13 @@ protected:
         constexpr static bool value = true;
     };
 
+#if HAVE_DUNE_COMMON
+    template<class T, int N>
+    struct is_array<Dune::FieldVector<T,N>> {
+        constexpr static bool value = true;
+    };
+#endif
+
     //! Detect existence of \c serializeOp member function
     //!
     //! Base case (no \c serializeOp member function)
@@ -498,26 +553,57 @@ protected:
         T, std::void_t<decltype(std::declval<T>().serializeOp(std::declval<Serializer<Packer>&>()))>
     > : public std::true_type {};
 
-    //! \brief Handler for smart pointers.
+    //! \brief Handler for shared pointers.
     template<class PtrType>
-    void ptr(const PtrType& data)
+    void shared_ptr(const PtrType& data)
     {
         using T1 = typename PtrType::element_type;
-        bool value = data ? true : false;
-        (*this)(value);
-        if (m_op == Operation::UNPACK && value) {
-            const_cast<PtrType&>(data).reset(new T1);
+        std::uintptr_t data_ptr = reinterpret_cast<std::uintptr_t>(data.get());
+        (*this)(data_ptr);
+        if (!data_ptr)
+            return;
+        if (m_op == Operation::PACK || m_op == Operation::PACKSIZE) {
+            if (m_ptrmap.count(data_ptr) == 0) {
+                (*this)(*data);
+                m_ptrmap[data_ptr].reset();
+            }
+        } else {  // m_op == Operation::UNPACK
+            if (m_ptrmap.count(data_ptr) == 0) {
+                const_cast<PtrType&>(data) = std::make_shared<T1>();
+                m_ptrmap[data_ptr] = std::static_pointer_cast<void>(data);
+                (*this)(*data);
+            } else {
+                const_cast<PtrType&>(data) = std::static_pointer_cast<T1>(m_ptrmap[data_ptr]);
+            }
         }
-        if (data) {
-            (*this)(*data);
+    }
+
+    template<class PtrType>
+    void unique_ptr(const PtrType& data)
+    {
+        using T1 = typename PtrType::element_type;
+
+        if (m_op != Operation::UNPACK) {
+            (*this)(data ? 1 : 0);
+            if (data) {
+                (*this)(*data);
+            }
+        } else {
+            int ptr = 0;
+            (*this)(ptr);
+            if (ptr == 1) {
+                const_cast<PtrType&>(data) = std::make_unique<T1>();
+                (*this)(*data);
+            }
         }
     }
 
     const Packer& m_packer; //!< Packer to use
     Operation m_op = Operation::PACKSIZE; //!< Current operation
     size_t m_packSize = 0; //!< Required buffer size after PACKSIZE has been done
-    int m_position = 0; //!< Current position in buffer
+    size_t m_position = 0; //!< Current position in buffer
     std::vector<char> m_buffer; //!< Buffer for serialized data
+    std::map<std::uintptr_t, std::shared_ptr<void>> m_ptrmap; //!< Map to keep track of which pointer data has been serialized and actual pointers during unpacking
 };
 
 }

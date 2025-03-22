@@ -21,6 +21,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <opm/common/utility/OpmInputError.hpp>
+
 #include <opm/input/eclipse/Parser/Parser.hpp>
 #include <opm/input/eclipse/Deck/Deck.hpp>
 
@@ -56,8 +58,9 @@
 
 #include <opm/input/eclipse/Units/UnitSystem.hpp>
 
-#include <stdexcept>
 #include <iostream>
+#include <stdexcept>
+#include <tuple>
 
 using namespace Opm;
 
@@ -2346,6 +2349,122 @@ BOOST_AUTO_TEST_CASE( TestParseDIFFC ) {
     BOOST_CHECK_CLOSE( 1.8, diffc[0].oil_in_oil_cross_phase*conversion_factor, epsilon() );
 }
 
+
+BOOST_AUTO_TEST_CASE( TestParseDIFFCWATGAS ) {
+    const std::string data = R"(
+      GAS
+      WATER
+      TABDIMS
+        1* 1 /
+
+      DIFFCWAT
+        1.1 1.2 /
+
+      DIFFCGAS
+        1.3 1.4 /
+    )";
+
+    Opm::Parser parser;
+    auto deck = parser.parseString(data);
+    Opm::TableManager tables( deck );
+    double conversion_factor = (60*60*24);
+
+    const auto& diffcwat = tables.getDiffusionCoefficientWaterTable();
+    BOOST_CHECK_CLOSE( 1.1, diffcwat[0].co2_in_water*conversion_factor, epsilon() );
+    BOOST_CHECK_CLOSE( 1.2, diffcwat[0].h2o_in_water*conversion_factor, epsilon());
+
+    const auto& diffcgas = tables.getDiffusionCoefficientGasTable();
+    BOOST_CHECK_CLOSE( 1.3, diffcgas[0].co2_in_gas*conversion_factor, epsilon() );
+    BOOST_CHECK_CLOSE( 1.4, diffcgas[0].h2o_in_gas*conversion_factor, epsilon() );
+}
+
+BOOST_AUTO_TEST_CASE( TestParseDIFFAWATGAS ) {
+    const std::string data = R"(
+      GAS
+      WATER
+      TABDIMS
+        1* 1 /
+
+      DIFFAWAT
+        1.1 1.2 /
+
+      DIFFAGAS
+        1.3 1.4 /
+    )";
+
+    Opm::Parser parser;
+    auto deck = parser.parseString(data);
+    Opm::TableManager tables( deck );
+    double conversion_factor = (60*60*24);
+
+    const auto& diffawat = tables.getDiffusionCoefficientWaterTable();
+    BOOST_CHECK_CLOSE( 1.1, diffawat[0].co2_in_water*conversion_factor, epsilon() );
+    BOOST_CHECK_CLOSE( 1.2, diffawat[0].h2o_in_water*conversion_factor, epsilon());
+
+    const auto& diffagas = tables.getDiffusionCoefficientGasTable();
+    BOOST_CHECK_CLOSE( 1.3, diffagas[0].co2_in_gas*conversion_factor, epsilon() );
+    BOOST_CHECK_CLOSE( 1.4, diffagas[0].h2o_in_gas*conversion_factor, epsilon() );
+}
+
+BOOST_AUTO_TEST_CASE( TestParseDIFFACWATGAS ) {
+    const std::string data = R"(
+      GAS
+      WATER
+      TABDIMS
+        1* 1 /
+
+      DIFFAWAT
+        1.1 1.2 /
+
+      DIFFCGAS
+        1.3 1.4 /
+    )";
+
+    Opm::Parser parser;
+    BOOST_CHECK_THROW(parser.parseString(data), Opm::OpmInputError);
+}
+
+BOOST_AUTO_TEST_CASE( TestParseDIFFCAWATGAS ) {
+    const std::string data = R"(
+      GAS
+      WATER
+      TABDIMS
+        1* 1 /
+
+      DIFFCWAT
+        1.1 1.2 /
+
+      DIFFAGAS
+        1.3 1.4 /
+    )";
+
+    Opm::Parser parser;
+    BOOST_CHECK_THROW(parser.parseString(data), Opm::OpmInputError);
+}
+
+BOOST_AUTO_TEST_CASE(TestParsePPCWMAX) {
+    const std::string data = R"(
+        TABDIMS
+        2 /
+
+        PPCWMAX
+        10.0 /
+        1* YES/
+    )";
+
+    Opm::Parser parser;
+    auto deck = parser.parseString(data);
+    Opm::TableManager tables(deck);
+
+    const auto& ppcwmax = tables.getPpcwmax();
+    BOOST_CHECK_CLOSE(10.0e5, ppcwmax[0].max_cap_pres, epsilon());
+    BOOST_CHECK_EQUAL(false, ppcwmax[0].option);
+
+    BOOST_CHECK_CLOSE(1e+25, ppcwmax[1].max_cap_pres, epsilon());
+    BOOST_CHECK_EQUAL(true, ppcwmax[1].option);
+}
+
+
 BOOST_AUTO_TEST_CASE( TestParseROCK ) {
     const std::string data = R"(
       TABDIMS
@@ -2368,6 +2487,28 @@ BOOST_AUTO_TEST_CASE( TestParseROCK ) {
 
     BOOST_CHECK_THROW( rock.at( 2 ), std::out_of_range );
     BOOST_CHECK_EQUAL( 8U , tables.numFIPRegions( ));
+}
+
+BOOST_AUTO_TEST_CASE( TestParseROCK_WithDefault )
+{
+    const auto deck = Opm::Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+  1* 2 /
+PROPS
+ROCK
+  1.1 1.2 /
+/ -- Copy from region 1
+)");
+
+    const auto tables = Opm::TableManager { deck };
+    const auto& rock = tables.getRockTable();
+    BOOST_CHECK_EQUAL(rock.size(), std::size_t{2});
+
+    BOOST_CHECK_CLOSE(1.1e5,  rock[0].reference_pressure, 1.0e-8);
+    BOOST_CHECK_CLOSE(1.2e-5, rock[0].compressibility, 1.0e-8);
+
+    BOOST_CHECK_CLOSE(1.1e5,  rock[1].reference_pressure, 1.0e-8);
+    BOOST_CHECK_CLOSE(1.2e-5, rock[1].compressibility, 1.0e-8);
 }
 
 BOOST_AUTO_TEST_CASE( TestParsePVCDO ) {
@@ -2393,7 +2534,7 @@ BOOST_AUTO_TEST_CASE( TestParsePVCDO ) {
     BOOST_CHECK_CLOSE( 0.88,    pvcdo[ 0 ].viscosity * 1e3, 1e-5 );
     BOOST_CHECK_CLOSE( 0.0,     pvcdo[ 0 ].viscosibility * 1e5, 1e-5 );
 
-    BOOST_CHECK_THROW( pvcdo.at( 1 ), std::out_of_range );
+    BOOST_CHECK_THROW( std::ignore = pvcdo.at( 1 ), std::out_of_range );
     BOOST_CHECK_EQUAL( 25U , tables.numFIPRegions( ));
 
     const std::string malformed = R"(

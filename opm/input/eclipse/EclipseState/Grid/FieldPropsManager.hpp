@@ -20,16 +20,20 @@
 #define FIELDPROPS_MANAGER_HPP
 
 #include <memory>
-#include <vector>
+#include <string>
+#include <string_view>
 #include <unordered_map>
-#include <opm/input/eclipse/EclipseState/Grid/TranCalculator.hpp>
-#include <opm/input/eclipse/EclipseState/Grid/FieldData.hpp>
+#include <vector>
 
 namespace Opm {
 
 class EclipseGrid;
 class Deck;
 class DeckKeyword;
+namespace Fieldprops {
+class TranCalculator;
+template<typename T> struct FieldData;
+}
 class FieldProps;
 class Phases;
 class TableManager;
@@ -42,10 +46,12 @@ public:
     // The default constructor should be removed when the FieldPropsManager is mandatory
     // The default constructed fieldProps object is **NOT** usable
     FieldPropsManager() = default;
-    FieldPropsManager(const Deck& deck, const Phases& ph, const EclipseGrid& grid, const TableManager& tables);
+    FieldPropsManager(const Deck& deck, const Phases& ph, EclipseGrid& grid, const TableManager& tables,
+                      const std::size_t ncomps = 0); // TODO: removing the default value for ncomps
     virtual ~FieldPropsManager() = default;
 
     virtual void reset_actnum(const std::vector<int>& actnum);
+    void deleteMINPVV();
     const std::string& default_region() const;
     virtual std::vector<int> actnum() const;
     virtual std::vector<double> porv(bool global = false) const;
@@ -66,6 +72,7 @@ public:
 
     bool operator==(const FieldPropsManager& other) const;
     static bool rst_cmp(const FieldPropsManager& full_arg, const FieldPropsManager& rst_arg);
+
     /*
       Because the FieldProps class can autocreate properties the semantics of
       get() and has() is slightly non intuitve:
@@ -133,8 +140,8 @@ public:
       contain said keyword, or if the keyword has not been fully initialized. If
       you ask for a totally unknown keyword the method will return nullptr.
     */
-    template <typename T> const std::vector<T>* try_get(const
-    std::string& keyword) const;
+    template <typename T>
+    const std::vector<T>* try_get(const std::string& keyword) const;
 
     /*
       You can ask whether the elements in the keyword have a default value -
@@ -166,6 +173,8 @@ public:
     */
     template <typename T>
     std::vector<std::string> keys() const;
+
+    virtual std::vector<std::string> fip_regions() const;
 
     const Fieldprops::FieldData<int>&
     get_int_field_data(const std::string& keyword) const;
@@ -228,9 +237,21 @@ public:
     */
     virtual void apply_tran(const std::string& keyword, std::vector<double>& tran_data) const;
 
+    /// \brief Apply TRANZ modifiers using global indices
+    ///
+    /// Needed for calculation transmissibility of NNCs over pinched out cells.
+    /// \param indices The cartesian indices of the cells that contribute to the pinch out
+    ///                transmissibilities.
+    void apply_tranz_global(const std::vector<std::size_t>& indices,
+                            std::vector<double>& data) const;
+
     void apply_numerical_aquifers(const NumericalAquifers& aquifers);
 
-    const Fieldprops::TranMap& getTran() const;
+    const std::unordered_map<std::string,Fieldprops::TranCalculator>& getTran() const;
+
+    void prune_global_for_schedule_run();
+
+    void set_active_indices(const std::vector<int>& indices);
 
 private:
     /*
@@ -276,6 +297,12 @@ void apply_tran(const std::unordered_map<std::string, Fieldprops::TranCalculator
                 const MapType& double_data,
                 std::size_t active_size,
                 const std::string& keyword, std::vector<double>& data);
+
+template<class MapType>
+void apply_tran(const Fieldprops::TranCalculator& tranCalc,
+                const MapType& double_data,
+                const std::vector<std::size_t>& indices,
+                std::vector<double>& data);
 
 }
 

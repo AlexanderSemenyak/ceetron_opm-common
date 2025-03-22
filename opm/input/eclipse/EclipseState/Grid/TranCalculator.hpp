@@ -91,7 +91,8 @@ public:
         return this->m_name;
     }
 
-    keywords::keyword_info<double> make_kw_info(ScalarOperation op);
+    keywords::keyword_info<double> make_kw_info(ScalarOperation op,
+                                                const std::string& target_kw);
 
     bool operator==(const TranCalculator& other) const {
         return this->m_name == other.m_name &&
@@ -116,8 +117,6 @@ private:
     std::string m_name;
     std::vector<TranAction> actions;
 };
-
-using TranMap = std::unordered_map<std::string, TranCalculator>;
 
 } // namespace Fieldprops
 } // end namespace Opm

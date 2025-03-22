@@ -37,6 +37,7 @@
 #include <opm/input/eclipse/Schedule/Action/Actions.hpp>
 #include <opm/input/eclipse/Schedule/Action/ActionX.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQConfig.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
 #include <opm/input/eclipse/Deck/Deck.hpp>
 #include <opm/input/eclipse/Parser/Parser.hpp>
 #include <opm/input/eclipse/Parser/ParseContext.hpp>
@@ -59,10 +60,10 @@ struct test_data {
     Schedule schedule;
     SummaryConfig summary_config;
 
-    test_data(const Deck& deck_arg) :
+    explicit test_data(const Deck& deck_arg) :
         deck(deck_arg),
         state( this->deck ),
-        python( std::make_shared<Python>() ),
+        python( msim::python ),
         schedule( this->deck, this->state, this->python),
         summary_config( this->deck, this->schedule, this->state.fieldProps(), this->state.aquifer() )
     {
@@ -70,7 +71,7 @@ struct test_data {
         ioconfig.setBaseName("MSIM");
     }
 
-    test_data(const std::string& deck_string) :
+    explicit test_data(const std::string& deck_string) :
         test_data( Parser().parseString(deck_string) )
     {}
 
@@ -331,11 +332,11 @@ BOOST_AUTO_TEST_CASE(UDQ_WUWCT) {
                 std::string wuwct_key = std::string("WUWCT:") + well;
                 std::string wopr_key  = std::string("WOPR:") + well;
 
-                if (ecl_sum_get_general_var(ecl_sum, step, wwct_key.c_str()) != 0)
-                    BOOST_CHECK_EQUAL( ecl_sum_get_general_var(ecl_sum, step, wwct_key.c_str()),
-                                       ecl_sum_get_general_var(ecl_sum, step, wuwct_key.c_str()));
+                if (ecl_sum_get_general_var(ecl_sum, step, wwct_key) != 0)
+                    BOOST_CHECK_EQUAL( ecl_sum_get_general_var(ecl_sum, step, wwct_key),
+                                       ecl_sum_get_general_var(ecl_sum, step, wuwct_key));
 
-                wopr_sum += ecl_sum_get_general_var(ecl_sum, step , wopr_key.c_str());
+                wopr_sum += ecl_sum_get_general_var(ecl_sum, step , wopr_key);
             }
             BOOST_CHECK_EQUAL( ecl_sum_get_general_var(ecl_sum, step, "FOPR"),
                                ecl_sum_get_general_var(ecl_sum, step, "FUOPR"));
@@ -345,18 +346,20 @@ BOOST_AUTO_TEST_CASE(UDQ_WUWCT) {
         {
             const auto& fu_time = ecl_sum.get_at_rstep("FU_TIME");
             BOOST_CHECK_CLOSE(fu_time[7 - 1], 212, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[8 - 1], 243, 1e-5);
             // UPDATE OFF
-            BOOST_CHECK_CLOSE(fu_time[8 - 1], 212, 1e-5);
-            BOOST_CHECK_CLOSE(fu_time[9 - 1] , 212, 1e-5);
-            BOOST_CHECK_CLOSE(fu_time[10 - 1], 212, 1e-5);
-            BOOST_CHECK_CLOSE(fu_time[11 - 1], 212, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[9 - 1] , 243, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[10 - 1], 243, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[11 - 1], 243, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[12 - 1], 243, 1e-5);
             // UPDATE NEXT
-            BOOST_CHECK_CLOSE(fu_time[12 - 1], 342, 1e-5);
-            BOOST_CHECK_CLOSE(fu_time[13 - 1], 342, 1e-5);
-            BOOST_CHECK_CLOSE(fu_time[14 - 1], 342, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[13 - 1], 372, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[14 - 1], 372, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[15 - 1], 372, 1e-5);
             // UPDATE ON
-            BOOST_CHECK_CLOSE(fu_time[15 - 1], 456, 1e-5);
             BOOST_CHECK_CLOSE(fu_time[16 - 1], 487, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[17 - 1], 517, 1e-5);
+            BOOST_CHECK_CLOSE(fu_time[18 - 1], 548, 1e-5);
         }
     }
 }
@@ -448,7 +451,7 @@ BOOST_AUTO_TEST_CASE(UDA) {
                 int prev_tstep = ecl_sum_iget_report_end(ecl_sum, report_step - 1);
                 for (const auto& well : {"P1", "P2", "P3", "P4"}) {
                     std::string wwpr_key  = std::string("WWPR:") + well;
-                    wwpr_sum += ecl_sum_get_general_var(ecl_sum, prev_tstep, wwpr_key.c_str());
+                    wwpr_sum += ecl_sum_get_general_var(ecl_sum, prev_tstep, wwpr_key);
                 }
                 wwpr_sum = 0.90 * wwpr_sum;
                 wwpr_sum = std::max(eps_lim, wwpr_sum);
@@ -478,99 +481,211 @@ BOOST_AUTO_TEST_CASE(COMPDAT) {
 
 #ifdef EMBEDDED_PYTHON
 
-BOOST_AUTO_TEST_CASE(PYTHON_WELL_CLOSE_EXAMPLE) {
-    const auto& deck = Parser().parseFile("msim/MSIM_PYACTION.DATA");
-    test_data td( deck );
-    msim sim(td.state, td.schedule);
+BOOST_AUTO_TEST_CASE(MSIM_EXIT_TEST_PYACTION) {
+    Opm::Parser parser;
+
+    Opm::Deck deck = parser.parseFile("msim/MSIM_PYACTION_EXIT.DATA");
+    Opm::EclipseState state(deck);
+    Opm::Schedule schedule(deck, state, msim::python);
+    Opm::SummaryConfig summary_config(deck, schedule, state.fieldProps(), state.aquifer());
+
     {
         WorkArea work_area("test_msim");
-        EclipseIO io(td.state, td.state.getInputGrid(), sim.schedule, td.summary_config);
+        Opm::msim msim(state, schedule);
+        Opm::EclipseIO io(state, state.getInputGrid(), schedule, summary_config);
+        msim.well_rate("P1", data::Rates::opt::oil, prod_opr);
+        msim.well_rate("P2", data::Rates::opt::oil, prod_opr);
+        msim.well_rate("P3", data::Rates::opt::oil, prod_opr);
+        msim.well_rate("P4", data::Rates::opt::oil, prod_opr);
 
-        sim.well_rate("P1", data::Rates::opt::oil, prod_opr);
-        sim.well_rate("P2", data::Rates::opt::oil, prod_opr);
-        sim.well_rate("P3", data::Rates::opt::oil, prod_opr);
-        sim.well_rate("P4", data::Rates::opt::oil, prod_opr);
+        msim.well_rate("P1", data::Rates::opt::wat, prod_wpr_P1);
+        msim.well_rate("P2", data::Rates::opt::wat, prod_wpr_P2);
+        msim.well_rate("P3", data::Rates::opt::wat, prod_wpr_P3);
+        msim.well_rate("P4", data::Rates::opt::wat, prod_wpr_P4);
+        msim.run(io, false);
 
-        sim.well_rate("P1", data::Rates::opt::wat, prod_wpr_P1);
-        sim.well_rate("P2", data::Rates::opt::wat, prod_wpr_P2);
-        sim.well_rate("P3", data::Rates::opt::wat, prod_wpr_P3);
-        sim.well_rate("P4", data::Rates::opt::wat, prod_wpr_P4);
-
-        {
-            const auto& w1 = sim.schedule.getWell("P1", 15);
-            const auto& w2 = sim.schedule.getWell("P2", 15);
-            const auto& w3 = sim.schedule.getWell("P3", 15);
-            const auto& w4 = sim.schedule.getWell("P4", 15);
-
-            BOOST_CHECK(w1.getStatus() == Well::Status::OPEN );
-            BOOST_CHECK(w2.getStatus() == Well::Status::OPEN );
-            BOOST_CHECK(w3.getStatus() == Well::Status::OPEN );
-            BOOST_CHECK(w4.getStatus() == Well::Status::OPEN );
-        }
-
-
-        sim.run(io, false);
-        {
-            const auto& w1 = sim.schedule.getWell("P1", 15);
-            const auto& w3 = sim.schedule.getWell("P3", 15);
-            BOOST_CHECK(w1.getStatus() ==  Well::Status::OPEN );
-            BOOST_CHECK(w3.getStatus() ==  Well::Status::OPEN );
-        }
-        {
-            const auto& w2_6 = sim.schedule.getWell("P2", 6);
-            BOOST_CHECK(w2_6.getStatus() == Well::Status::SHUT );
-        }
-        {
-            const auto& w4_11 = sim.schedule.getWell("P4", 11);
-            BOOST_CHECK(w4_11.getStatus() == Well::Status::SHUT );
-        }
+        auto exit_status = msim.schedule.exitStatus();
+        BOOST_CHECK( exit_status.has_value() );
+        BOOST_CHECK_EQUAL(exit_status.value(), 99);
     }
-    BOOST_CHECK_EQUAL( sim.st.get("run_count"), 13);
 }
-
-BOOST_AUTO_TEST_CASE(PYTHON_ACTIONX) {
-    const auto& deck = Parser().parseFile("msim/MSIM_PYACTION_ACTIONX.DATA");
+BOOST_AUTO_TEST_CASE(MSIM_PYACTION_INSERT_KEYWORD) {
+    const auto& deck = Parser().parseFile("msim/MSIM_PYACTION_INSERT_KEYWORD.DATA");
     test_data td( deck );
     msim sim(td.state, td.schedule);
     {
         WorkArea work_area("test_msim");
         EclipseIO io(td.state, td.state.getInputGrid(), sim.schedule, td.summary_config);
-
-        sim.well_rate("P1", data::Rates::opt::oil, prod_opr);
-        sim.well_rate("P2", data::Rates::opt::oil, prod_opr);
-        sim.well_rate("P3", data::Rates::opt::oil, prod_opr);
-        sim.well_rate("P4", data::Rates::opt::oil, prod_opr);
-
-        sim.well_rate("P1", data::Rates::opt::wat, prod_wpr_P1);
-        sim.well_rate("P2", data::Rates::opt::wat, prod_wpr_P2);
-        sim.well_rate("P3", data::Rates::opt::wat, prod_wpr_P3);
-        sim.well_rate("P4", data::Rates::opt::wat, prod_wpr_P4);
-
-        {
-            const auto& w1 = sim.schedule.getWell("P1", 0);
-            const auto& w2 = sim.schedule.getWell("P2", 0);
-            const auto& w3 = sim.schedule.getWell("P3", 0);
-            const auto& w4 = sim.schedule.getWell("P4", 0);
-
-            BOOST_CHECK(w1.getStatus() == Well::Status::OPEN );
-            BOOST_CHECK(w2.getStatus() == Well::Status::OPEN );
-            BOOST_CHECK(w3.getStatus() == Well::Status::OPEN );
-            BOOST_CHECK(w4.getStatus() == Well::Status::OPEN );
-        }
-
-
-        sim.run(io, false);
-
         {
             const auto& w1 = sim.schedule.getWell("P1", 1);
-            const auto& w2 = sim.schedule.getWell("P2", 2);
-            const auto& w3 = sim.schedule.getWell("P3", 3);
-            const auto& w4 = sim.schedule.getWell("P4", 4);
-            BOOST_CHECK(w1.getStatus() ==  Well::Status::SHUT );
-            BOOST_CHECK(w2.getStatus() ==  Well::Status::SHUT );
-            BOOST_CHECK(w3.getStatus() ==  Well::Status::SHUT );
-            BOOST_CHECK(w4.getStatus() ==  Well::Status::SHUT );
+            BOOST_CHECK(w1.getStatus() == Well::Status::OPEN );
         }
+
+        sim.run(io, false);
+
+        {
+            const auto& w1_2 = sim.schedule.getWell("P1", 2); // Closed well P1 at report step 2
+            const auto& w1_3 = sim.schedule.getWell("P1", 3); // And scheduled for reopening at the report step after that
+            BOOST_CHECK(w1_2.getStatus() ==  Well::Status::SHUT);
+            BOOST_CHECK(w1_3.getStatus() ==  Well::Status::OPEN);
+        }
+    }
+}
+BOOST_AUTO_TEST_CASE(PYTHON_WELL_CLOSE_EXAMPLE) {
+    const auto& deck1 = Parser().parseFile("msim/MSIM_PYACTION.DATA");
+    const auto& deck2 = Parser().parseFile("msim/MSIM_PYACTION_NO_RUN_FUNCTION.DATA");
+    std::vector<Deck> decks = {deck1, deck2};
+    for (auto&& deck : decks) {
+        test_data td( deck );
+        msim sim(td.state, td.schedule);
+        {
+            WorkArea work_area("test_msim");
+            EclipseIO io(td.state, td.state.getInputGrid(), sim.schedule, td.summary_config);
+
+            sim.well_rate("P1", data::Rates::opt::oil, prod_opr);
+            sim.well_rate("P2", data::Rates::opt::oil, prod_opr);
+            sim.well_rate("P3", data::Rates::opt::oil, prod_opr);
+            sim.well_rate("P4", data::Rates::opt::oil, prod_opr);
+
+            sim.well_rate("P1", data::Rates::opt::wat, prod_wpr_P1);
+            sim.well_rate("P2", data::Rates::opt::wat, prod_wpr_P2);
+            sim.well_rate("P3", data::Rates::opt::wat, prod_wpr_P3);
+            sim.well_rate("P4", data::Rates::opt::wat, prod_wpr_P4);
+
+            {
+                const auto& w1 = sim.schedule.getWell("P1", 15);
+                const auto& w2 = sim.schedule.getWell("P2", 15);
+                const auto& w3 = sim.schedule.getWell("P3", 15);
+                const auto& w4 = sim.schedule.getWell("P4", 15);
+
+                BOOST_CHECK(w1.getStatus() == Well::Status::OPEN );
+                BOOST_CHECK(w2.getStatus() == Well::Status::OPEN );
+                BOOST_CHECK(w3.getStatus() == Well::Status::OPEN );
+                BOOST_CHECK(w4.getStatus() == Well::Status::OPEN );
+            }
+
+
+            sim.run(io, false);
+            {
+                const auto& w1 = sim.schedule.getWell("P1", 15);
+                const auto& w3 = sim.schedule.getWell("P3", 15);
+                BOOST_CHECK(w1.getStatus() ==  Well::Status::OPEN );
+                BOOST_CHECK(w3.getStatus() ==  Well::Status::OPEN );
+            }
+            {
+                const auto& w2_6 = sim.schedule.getWell("P2", 6);
+                BOOST_CHECK(w2_6.getStatus() == Well::Status::SHUT );
+            }
+            {
+                const auto& w4_11 = sim.schedule.getWell("P4", 11);
+                BOOST_CHECK(w4_11.getStatus() == Well::Status::SHUT );
+            }
+        }
+        BOOST_CHECK_EQUAL( sim.st.get("run_count"), 13);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(PYTHON_CHANGING_SCHEUDULE) {
+    // Both decks test the same modifications, deck1 without an actionx_callback function, deck2 with an actionx_callback function 
+    const auto& deck1 = Parser().parseFile("msim/MSIM_PYACTION_CHANGING_SCHEDULE.DATA");
+    const auto& deck2 = Parser().parseFile("msim/MSIM_PYACTION_CHANGING_SCHEDULE_ACTIONX_CALLBACK.DATA");
+    std::vector<Deck> decks = {deck1, deck2};
+    for (auto&& deck : decks) {
+        test_data td( deck );
+        msim sim(td.state, td.schedule);
+        {
+            WorkArea work_area("test_msim");
+            EclipseIO io(td.state, td.state.getInputGrid(), sim.schedule, td.summary_config);
+
+            sim.well_rate("P1", data::Rates::opt::oil, prod_opr);
+            sim.well_rate("P2", data::Rates::opt::oil, prod_opr);
+            sim.well_rate("P3", data::Rates::opt::oil, prod_opr);
+            sim.well_rate("P4", data::Rates::opt::oil, prod_opr);
+
+            sim.well_rate("P1", data::Rates::opt::wat, prod_wpr_P1);
+            sim.well_rate("P2", data::Rates::opt::wat, prod_wpr_P2);
+            sim.well_rate("P3", data::Rates::opt::wat, prod_wpr_P3);
+            sim.well_rate("P4", data::Rates::opt::wat, prod_wpr_P4);
+
+            {
+                const auto& w1 = sim.schedule.getWell("P1", 0);
+                const auto& w2 = sim.schedule.getWell("P2", 0);
+                const auto& w3 = sim.schedule.getWell("P3", 0);
+                const auto& w4 = sim.schedule.getWell("P4", 0);
+
+                BOOST_CHECK(w1.getStatus() == Well::Status::OPEN );
+                BOOST_CHECK(w2.getStatus() == Well::Status::OPEN );
+                BOOST_CHECK(w3.getStatus() == Well::Status::OPEN );
+                BOOST_CHECK(w4.getStatus() == Well::Status::OPEN );
+            }
+
+
+            sim.run(io, false);
+
+            {
+                const auto& w1_at_reportstep1 = sim.schedule.getWell("P1", 1);
+                const auto& w2_at_reportstep2 = sim.schedule.getWell("P2", 2);
+                const auto& w3_at_reportstep3 = sim.schedule.getWell("P3", 3);
+                const auto& w4_at_reportstep4 = sim.schedule.getWell("P4", 4);
+                BOOST_CHECK(w1_at_reportstep1.getStatus() ==  Well::Status::SHUT );
+                BOOST_CHECK(w2_at_reportstep2.getStatus() ==  Well::Status::SHUT );
+                BOOST_CHECK(w3_at_reportstep3.getStatus() ==  Well::Status::SHUT );
+                BOOST_CHECK(w4_at_reportstep4.getStatus() ==  Well::Status::SHUT );
+            }
+            {
+                const auto& w1_at_reportstep4 = sim.schedule.getWell("P1", 4);
+                const auto& w1_at_reportstep5 = sim.schedule.getWell("P1", 5);
+                const auto& w1_at_reportstep6 = sim.schedule.getWell("P1", 6);
+                const auto& w2_at_reportstep6 = sim.schedule.getWell("P2", 6);
+                const auto& w3_at_reportstep6 = sim.schedule.getWell("P3", 6);
+                const auto& w4_at_reportstep6 = sim.schedule.getWell("P4", 6);
+                BOOST_CHECK(w1_at_reportstep4.getStatus() ==  Well::Status::SHUT ); // Opened P1 again at step 5
+                BOOST_CHECK(w1_at_reportstep5.getStatus() ==  Well::Status::OPEN ); // Opened P1 again at step 5
+                BOOST_CHECK(w1_at_reportstep6.getStatus() ==  Well::Status::OPEN ); // Opened P1 again at step 5
+                BOOST_CHECK(w2_at_reportstep6.getStatus() ==  Well::Status::SHUT ); 
+                BOOST_CHECK(w3_at_reportstep6.getStatus() ==  Well::Status::SHUT );
+                BOOST_CHECK(w4_at_reportstep6.getStatus() ==  Well::Status::SHUT );
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(MSIM_PYACTION_INSERT_INVALID_KEYWORD) {
+    const auto& deck = Parser().parseFile("msim/MSIM_PYACTION_INSERT_INVALID_KEYWORD.DATA");
+    test_data td( deck );
+    msim sim(td.state, td.schedule);
+    {
+        WorkArea work_area("test_msim");
+        EclipseIO io(td.state, td.state.getInputGrid(), sim.schedule, td.summary_config);
+
+        BOOST_CHECK_THROW(sim.run(io, false), std::exception);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(PYTHON_OPEN_WELL_AT_INVALID_REPORT_STEP) {
+    const auto& deck1 = Parser().parseFile("msim/MSIM_PYACTION_OPEN_WELL_AT_PAST_REPORT_STEP.DATA");
+    const auto& deck2 = Parser().parseFile("msim/MSIM_PYACTION_OPEN_WELL_AT_TOO_LATE_REPORT_STEP.DATA");
+    std::vector<Deck> decks = {deck1, deck2};
+    for (auto&& deck : decks) {
+        test_data td( deck );
+        msim sim(td.state, td.schedule);
+        {
+            WorkArea work_area("test_msim");
+            EclipseIO io(td.state, td.state.getInputGrid(), sim.schedule, td.summary_config);
+            BOOST_CHECK_THROW(sim.run(io, false), std::exception);
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(MSIM_PYACTION_RETRIEVE_INFO) {
+    const auto& deck = Parser().parseFile("msim/MSIM_PYACTION_RETRIEVE_INFO.DATA");
+    test_data td( deck );
+    msim sim(td.state, td.schedule);
+    {
+        WorkArea work_area("test_msim");
+        EclipseIO io(td.state, td.state.getInputGrid(), sim.schedule, td.summary_config);
+
+        BOOST_CHECK_NO_THROW(sim.run(io, false));
     }
 }
 

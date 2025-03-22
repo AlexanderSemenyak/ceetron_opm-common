@@ -1,0 +1,22 @@
+{
+  "name": "WELL_PROBE_OPM",
+  "sections": [
+    "SUMMARY"
+  ],
+  "comment": "Well summary keywords only supported by OPM-flow",
+  "deck_names": [
+      "WINJFC",
+      "WINJFVR",
+      "WINJFVT",
+      "WGMIR",
+      "WGMIT"
+  ],
+  "size": 1,
+  "items": [
+    {
+      "name": "WELLS",
+      "value_type": "STRING",
+      "size_type": "ALL"
+    }
+  ]
+}

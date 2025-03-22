@@ -23,10 +23,6 @@
 #include <opm/output/data/Aquifer.hpp>
 #include <opm/output/data/InterRegFlowMap.hpp>
 
-#include <opm/input/eclipse/Schedule/Group/Group.hpp>
-#include <opm/input/eclipse/Schedule/Well/PAvgCalculatorCollection.hpp>
-
-#include <cstddef>
 #include <map>
 #include <memory>
 #include <string>
@@ -37,55 +33,55 @@
 namespace Opm {
     class EclipseGrid;
     class EclipseState;
+    class Inplace;
     class Schedule;
     class SummaryConfig;
     class SummaryState;
-    class Inplace;
 } // namespace Opm
 
 namespace Opm { namespace data {
-    class Wells;
     class GroupAndNetworkValues;
     class InterRegFlowMap;
+    struct WellBlockAveragePressures;
+    class Wells;
 }} // namespace Opm::data
 
 namespace Opm { namespace out {
 
-class Summary {
+class Summary
+{
 public:
     using GlobalProcessParameters = std::map<std::string, double>;
     using RegionParameters = std::map<std::string, std::vector<double>>;
     using BlockValues = std::map<std::pair<std::string, int>, double>;
     using InterRegFlowValues = std::unordered_map<std::string, data::InterRegFlowMap>;
 
-    Summary(const EclipseState&  es,
-            const SummaryConfig& sumcfg,
-            const EclipseGrid&   grid,
-            const Schedule&      sched,
-            const std::string&   basename = "",
-            const bool           writeEsmry = false);
+    Summary(SummaryConfig&      sumcfg,
+            const EclipseState& es,
+            const EclipseGrid&  grid,
+            const Schedule&     sched,
+            const std::string&  basename = "",
+            const bool          writeEsmry = false);
 
     ~Summary();
 
     void add_timestep(const SummaryState& st, const int report_step, bool isSubstep);
 
-    void eval(SummaryState&                      summary_state,
-              const int                          report_step,
-              const double                       secs_elapsed,
-              const data::Wells&                 well_solution,
-              const data::GroupAndNetworkValues& group_and_nwrk_solution,
-              GlobalProcessParameters            single_values,
-              const Inplace&                     initial_inplace,
-              const Inplace&                     inplace,
-              const PAvgCalculatorCollection&    ,
-              const RegionParameters&            region_values = {},
-              const BlockValues&                 block_values  = {},
-              const data::Aquifers&              aquifers_values = {},
-              const InterRegFlowValues&          interreg_flows = {}) const;
+    void eval(SummaryState&                          summary_state,
+              const int                              report_step,
+              const double                           secs_elapsed,
+              const data::Wells&                     well_solution,
+              const data::WellBlockAveragePressures& wbp,
+              const data::GroupAndNetworkValues&     group_and_nwrk_solution,
+              const GlobalProcessParameters&         single_values,
+              const Inplace&                         initial_inplace,
+              const Inplace&                         inplace,
+              const RegionParameters&                region_values = {},
+              const BlockValues&                     block_values  = {},
+              const data::Aquifers&                  aquifers_values = {},
+              const InterRegFlowValues&              interreg_flows = {}) const;
 
     void write(const bool is_final_summary = false) const;
-
-    PAvgCalculatorCollection wbp_calculators(std::size_t report_step) const;
 
 private:
     class SummaryImplementation;

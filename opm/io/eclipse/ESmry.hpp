@@ -19,6 +19,7 @@
 #ifndef OPM_IO_ESMRY_HPP
 #define OPM_IO_ESMRY_HPP
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <iosfwd>
@@ -62,7 +63,7 @@ public:
     bool make_esmry_file();
 
     time_point startdate() const { return tp_startdat; }
-    std::vector<int> start_v() const { return start_vect; }
+    const std::vector<int>& start_v() const { return start_vect; }
 
     const std::vector<std::string>& keywordList() const;
     std::vector<std::string> keywordList(const std::string& pattern) const;
@@ -79,7 +80,7 @@ public:
     void write_rsm_file(std::optional<std::filesystem::path> = std::nullopt) const;
 
     bool all_steps_available();
-    std::string rootname() { return inputFileName.stem(); }
+    std::string rootname() { return inputFileName.stem().generic_string(); }
     std::tuple<double, double> get_io_elapsed() const;
 
 private:
@@ -140,14 +141,19 @@ private:
         std::vector<T> result;
         result.reserve(seqIndex.size());
 
-        for (const auto& ind : seqIndex){
-            result.push_back(full_vector[ind]);
-        }
+        std::transform(seqIndex.begin(), seqIndex.end(),
+                       std::back_inserter(result),
+                       [&full_vector](const auto& ind)
+                       {
+                           return full_vector[ind];
+                       });
 
         return result;
     }
 
-    std::vector<std::tuple <std::string, uint64_t>> getListOfArrays(std::string filename, bool formatted);
+    std::vector<std::tuple <std::string, uint64_t>>
+    getListOfArrays(const std::string& filename, bool formatted);
+
     std::vector<int> makeKeywPosVector(int speInd) const;
     std::string read_string_from_disk(std::fstream& fileH, uint64_t size) const;
 

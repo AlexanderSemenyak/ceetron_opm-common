@@ -30,6 +30,7 @@
 #include <opm/input/eclipse/Deck/DeckKeyword.hpp>
 #include <opm/input/eclipse/Deck/DeckSection.hpp>
 #include <opm/input/eclipse/Parser/ErrorGuard.hpp>
+#include <opm/input/eclipse/Parser/InputErrorAction.hpp>
 #include <opm/input/eclipse/Parser/ParseContext.hpp>
 #include <opm/input/eclipse/Parser/Parser.hpp>
 
@@ -217,7 +218,7 @@ BOOST_AUTO_TEST_CASE(SCHEDULESection_NotTerminated) {
 
 BOOST_AUTO_TEST_CASE(Section_ValidDecks) {
 
-    ParseContext mode { { { ParseContext::PARSE_UNKNOWN_KEYWORD, InputError::IGNORE } } };
+    ParseContext mode { { { ParseContext::PARSE_UNKNOWN_KEYWORD, InputErrorAction::IGNORE } } };
     Parser parser;
     ErrorGuard errors;
 
@@ -232,7 +233,7 @@ BOOST_AUTO_TEST_CASE(Section_ValidDecks) {
                                 "SCHEDULE\n"
                                 "TEST5\n";
 
-    BOOST_CHECK( Opm::DeckSection::checkSectionTopology( parser.parseString( minimal, mode, errors ), parser) );
+    BOOST_CHECK( Opm::DeckSection::checkSectionTopology( parser.parseString( minimal, mode, errors ), parser, errors) );
 
     const std::string with_opt = "RUNSPEC\n"
                                 "TEST1\n"
@@ -251,13 +252,16 @@ BOOST_AUTO_TEST_CASE(Section_ValidDecks) {
                                 "SCHEDULE\n"
                                 "TEST8\n";
 
-    BOOST_CHECK(Opm::DeckSection::checkSectionTopology( parser.parseString( with_opt, mode, errors ), parser));
+    BOOST_CHECK(Opm::DeckSection::checkSectionTopology( parser.parseString( with_opt, mode, errors ), parser, errors));
+    // prevent std::exit(1) in ErrorGuard's destructor!
+    errors.dump();
+    errors.clear();
 }
 
 BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
 
     Parser parser;
-    ParseContext mode { { { ParseContext::PARSE_UNKNOWN_KEYWORD, InputError::IGNORE } } };
+    ParseContext mode { { { ParseContext::PARSE_UNKNOWN_KEYWORD, InputErrorAction::IGNORE } } };
     ErrorGuard errors;
 
     const std::string keyword_before_RUNSPEC =
@@ -273,7 +277,7 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                 "SCHEDULE\n"
                                 "TEST5\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( keyword_before_RUNSPEC, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( keyword_before_RUNSPEC, mode, errors ), parser, errors));
 
     const std::string wrong_order = "RUNSPEC\n"
                                     "TEST1\n"
@@ -292,7 +296,7 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                     "SCHEDULE\n"
                                     "TEST8\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( wrong_order, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( wrong_order, mode, errors ), parser, errors));
 
     const std::string duplicate = "RUNSPEC\n"
                                   "TEST1\n"
@@ -313,7 +317,7 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                   "SCHEDULE\n"
                                   "TEST8\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( duplicate, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( duplicate, mode, errors ), parser, errors));
 
     const std::string section_after_SCHEDULE = "RUNSPEC\n"
                                                "TEST1\n"
@@ -332,7 +336,7 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                                "EDIT\n"
                                                "TEST3\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( section_after_SCHEDULE, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( section_after_SCHEDULE, mode, errors ), parser, errors));
 
     const std::string missing_runspec = "GRID\n"
                                         "TEST2\n"
@@ -343,7 +347,7 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                         "SCHEDULE\n"
                                         "TEST5\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_runspec, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_runspec, mode, errors ), parser, errors));
 
 
     const std::string missing_GRID = "RUNSPEC\n"
@@ -355,7 +359,7 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                      "SCHEDULE\n"
                                      "TEST5\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_GRID, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_GRID, mode, errors ), parser, errors));
 
    const std::string missing_PROPS = "RUNSPEC\n"
                                      "TEST1\n"
@@ -366,7 +370,7 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                      "SCHEDULE\n"
                                      "TEST5\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_PROPS, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_PROPS, mode, errors ), parser, errors));
 
     const std::string missing_SOLUTION = "RUNSPEC\n"
                                          "TEST1\n"
@@ -377,7 +381,7 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                          "SCHEDULE\n"
                                          "TEST5\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_SOLUTION, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_SOLUTION, mode, errors ), parser, errors));
 
     const std::string missing_SCHEDULE = "RUNSPEC\n"
                                          "TEST1\n"
@@ -388,5 +392,8 @@ BOOST_AUTO_TEST_CASE(Section_InvalidDecks) {
                                          "SOLUTION\n"
                                          "TEST4\n";
 
-    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_SCHEDULE, mode, errors ), parser));
+    BOOST_CHECK(!Opm::DeckSection::checkSectionTopology( parser.parseString( missing_SCHEDULE, mode, errors ), parser, errors));
+    // prevent std::exit(1) in ErrorGuard's destructor!
+    errors.dump();
+    errors.clear();
 }

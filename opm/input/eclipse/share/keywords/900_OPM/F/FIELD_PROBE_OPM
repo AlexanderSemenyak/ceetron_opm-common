@@ -1,0 +1,22 @@
+{
+  "name": "FIELD_PROBE_OPM",
+  "sections": [
+    "SUMMARY"
+  ],
+  "comment": "Field-level summary vectors supported only by OPM Flow",
+  "deck_names": [
+    "FGKDI",
+    "FGKDM",
+    "FGKMO",
+    "FGKTR",
+    "FGMDS",
+    "FGMGP",
+    "FGMIP",
+    "FGMIR",
+    "FGMIT",
+    "FGMMO",
+    "FGMST",
+    "FGMTR",
+    "FGMUS"
+  ]
+}

@@ -47,7 +47,8 @@ namespace Opm
         static OilVaporizationProperties serializationTestObject();
 
         static void updateDRSDT(Opm::OilVaporizationProperties& ovp, const std::vector<double>& maxDRSDT, const std::vector<std::string>& option);
-        static void updateDRSDTCON(Opm::OilVaporizationProperties& ovp, const std::vector<double>& maxDRSDT, const std::vector<std::string>& option);
+        static void updateDRSDTCON(Opm::OilVaporizationProperties& ovp, const std::vector<double>& maxDRSDT, const std::vector<std::string>& option,
+                                   const std::vector<double>& psi, const std::vector<double>& omega);
         static void updateDRVDT(Opm::OilVaporizationProperties& ovp, const std::vector<double>& maxDRVDT);
         static void updateVAPPARS(Opm::OilVaporizationProperties& ovp, double vap1, double vap2);
 
@@ -55,15 +56,22 @@ namespace Opm
         double getMaxDRSDT(const size_t pvtRegionIdx) const;
         double getMaxDRVDT(const size_t pvtRegionIdx) const;
         bool getOption(const size_t pvtRegionIdx) const;
+        bool drsdtActive(const size_t pvtRegionIdx) const;
+        bool drvdtActive(const size_t pvtRegionIdx) const;
+        bool drsdtConvective(const size_t pvtRegionIdx) const;
+        
         bool drsdtActive() const;
         bool drvdtActive() const;
         bool drsdtConvective() const;
+
         bool defined() const;
         size_t numPvtRegions() const {return m_maxDRSDT.size();}
 
         double vap1() const;
         double vap2() const;
 
+        double getPsi(const size_t pvtRegionIdx) const;
+        double getOmega(const size_t pvtRegionIdx) const;
         /*
          * if either argument was default constructed == will always be false
          * and != will always be true
@@ -80,6 +88,8 @@ namespace Opm
             serializer(m_maxDRSDT);
             serializer(m_maxDRSDT_allCells);
             serializer(m_maxDRVDT);
+            serializer(m_psi);
+            serializer(m_omega);
         }
 
     private:
@@ -89,6 +99,8 @@ namespace Opm
         std::vector<double> m_maxDRSDT;
         std::vector<bool> m_maxDRSDT_allCells;
         std::vector<double> m_maxDRVDT;
+        std::vector<double> m_psi;
+        std::vector<double> m_omega;
     };
 }
 #endif // DRSDT_H

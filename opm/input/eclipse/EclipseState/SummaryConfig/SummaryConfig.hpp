@@ -15,10 +15,14 @@
 
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
- */
+*/
 
 #ifndef OPM_SUMMARY_CONFIG_HPP
 #define OPM_SUMMARY_CONFIG_HPP
+
+#include <opm/io/eclipse/SummaryNode.hpp>
+
+#include <opm/common/OpmLog/KeywordLocation.hpp>
 
 #include <array>
 #include <limits>
@@ -28,25 +32,29 @@
 #include <unordered_set>
 #include <vector>
 
-
-#include <opm/io/eclipse/SummaryNode.hpp>
-#include <opm/common/OpmLog/KeywordLocation.hpp>
+namespace Opm {
+    class AquiferConfig;
+    class Deck;
+    class EclipseState;
+    class ErrorGuard;
+    class FieldPropsManager;
+    class GridDims;
+    class ParseContext;
+    class Schedule;
+} // namespace Opm
 
 namespace Opm {
 
-    /*
-      Very small utility class to get value semantics on the smspec_node
-      pointers. This should die as soon as the smspec_node class proper gets
-      value semantics.
-    */
-
-    class SummaryConfigNode {
+    class SummaryConfigNode
+    {
     public:
         using Category = Opm::EclIO::SummaryNode::Category;
         using Type = Opm::EclIO::SummaryNode::Type;
 
         SummaryConfigNode() = default;
-        explicit SummaryConfigNode(std::string keyword, const Category cat, KeywordLocation loc_arg);
+        explicit SummaryConfigNode(std::string keyword,
+                                   const Category cat,
+                                   KeywordLocation loc_arg);
 
         static SummaryConfigNode serializationTestObject();
 
@@ -65,7 +73,7 @@ namespace Opm {
         const std::string& fip_region() const { return *this->fip_region_ ; }
 
         std::string uniqueNodeKey() const;
-        const KeywordLocation& location( ) const { return this->loc; }
+        const KeywordLocation& location() const { return this->loc; }
 
         operator Opm::EclIO::SummaryNode() const {
             return { keyword_, category_, type_, name_, number_, fip_region_, {}};
@@ -85,9 +93,9 @@ namespace Opm {
         }
 
     private:
-        std::string keyword_;
-        Category    category_;
-        KeywordLocation loc;
+        std::string keyword_{};
+        Category    category_{};
+        KeywordLocation loc{};
         Type        type_{ Type::Undefined };
         std::string name_{};
         int         number_{std::numeric_limits<int>::min()};
@@ -121,15 +129,8 @@ namespace Opm {
         return ! (lhs < rhs);
     }
 
-    class Deck;
-    class ErrorGuard;
-    class GridDims;
-    class ParseContext;
-    class Schedule;
-    class AquiferConfig;
-    class FieldPropsManager;
-
-    class SummaryConfig {
+    class SummaryConfig
+    {
         public:
             typedef SummaryConfigNode keyword_type;
             typedef std::vector< keyword_type > keyword_list;
@@ -167,6 +168,11 @@ namespace Opm {
             size_t size() const;
             SummaryConfig& merge( const SummaryConfig& );
             SummaryConfig& merge( SummaryConfig&& );
+
+            keyword_list
+            registerRequisiteUDQorActionSummaryKeys(const std::vector<std::string>& extraKeys,
+                                                    const EclipseState&             es,
+                                                    const Schedule&                 sched);
 
             /*
               The hasKeyword() method will consult the internal set
@@ -245,6 +251,6 @@ namespace Opm {
             void handleProcessingInstruction(const std::string& keyword);
     };
 
-} //namespace Opm
+} // namespace Opm
 
-#endif
+#endif // OPM_SUMMARY_CONFIG_HPP

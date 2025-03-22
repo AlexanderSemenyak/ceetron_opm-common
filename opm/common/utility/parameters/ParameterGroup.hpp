@@ -92,8 +92,8 @@ namespace Opm {
                            const bool enable_output);
 
 	    // From ParameterMapItem
-	    virtual ~ParameterGroup();
-	    virtual std::string getTag() const;
+            ~ParameterGroup() override;
+            std::string getTag() const override;
 
 	    /// \brief A constructor typically used to initialize a
 	    ///        ParameterGroup from command-line arguments.
@@ -230,7 +230,7 @@ namespace Opm {
 	    void displayUsage(bool used_params = false) const;
 
             /// \brief Returns the path of the parameter group.
-	    std::string path() const;
+            const std::string& path() const;
 
             /// Insert a new item into the group.
 	    void insert(const std::string& name,

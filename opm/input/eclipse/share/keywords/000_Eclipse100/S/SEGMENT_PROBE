@@ -1,0 +1,55 @@
+{
+  "name": "SEGMENT_PROBE",
+  "sections": [
+    "SUMMARY"
+  ],
+  "deck_names": [
+    "SDENM",
+    "SMDEN",
+    "SGDEN",
+    "SGFR",
+    "SGFRF",
+    "SGFRS",
+    "SGFT",
+    "SGFV",
+    "SGHF",
+    "SGOR",
+    "SGVIS",
+    "SODEN",
+    "SOFR",
+    "SOFRF",
+    "SOFRS",
+    "SOFT",
+    "SOFV",
+    "SOGR",
+    "SOHF",
+    "SOVIS",
+    "SPR",
+    "SPRD",
+    "SPRDA",
+    "SPRDF",
+    "SPRDH",
+    "STFC",
+    "STFR",
+    "SWCT",
+    "SWDEN",
+    "SWFR",
+    "SWFT",
+    "SWFV",
+    "SWGR",
+    "SWHF",
+    "SWVIS"
+  ],
+  "comment": "This list is incomplete",
+  "deck_name_regex": "SU.+|STFC.+|STFR.+",
+  "items": [
+    {
+      "name": "Well",
+      "value_type": "STRING"
+    },
+    {
+      "name": "Segment",
+      "value_type": "INT"
+    }
+  ]
+}

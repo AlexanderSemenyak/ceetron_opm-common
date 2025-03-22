@@ -17,11 +17,11 @@
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
-#include <tuple>
 #include <getopt.h>
 #include <sstream>
 
@@ -39,6 +39,7 @@ static void printHelp() {
               << "\nIn addition, the program takes these options (which must be given before the arguments):\n\n"
               << "-h Print help and exit.\n"
               << "-l list all summary vectors.\n"
+              << "-n print summary vectors without headers.\n"
               << "-r extract data only for report steps. \n\n";
 }
 
@@ -77,14 +78,18 @@ int main(int argc, char **argv) {
     int c                          = 0;
     bool reportStepsOnly           = false;
     bool listKeys                  = false;
+    bool headers                   = true;
 
-    while ((c = getopt(argc, argv, "hrl")) != -1) {
+    while ((c = getopt(argc, argv, "hrnl")) != -1) {
         switch (c) {
         case 'h':
             printHelp();
-            return 0;
+            return EXIT_SUCCESS;
         case 'r':
             reportStepsOnly=true;
+            break;
+        case 'n':
+            headers=false;
             break;
         case 'l':
             listKeys=true;
@@ -94,7 +99,13 @@ int main(int argc, char **argv) {
         }
     }
 
-    int argOffset = optind;
+    const int argOffset = optind;
+    if (argOffset > argc - 1) {
+        printHelp();
+        // Returning failure since the user did not
+        // give the correct number of arguments.
+        return EXIT_FAILURE;
+    }
 
     std::unique_ptr<Opm::EclIO::ESmry> esmry;
     std::unique_ptr<Opm::EclIO::ExtESmry> ext_esmry;
@@ -107,15 +118,17 @@ int main(int argc, char **argv) {
 
     smryFileType filetype;
 
-    if (inputFileName.extension()==".SMSPEC"){
+    if (const auto& ext = inputFileName.extension();
+        (ext == ".SMSPEC") || (ext == ".FSMSPEC"))
+    {
         filetype = SMSPEC;
         esmry = std::make_unique<Opm::EclIO::ESmry>(inputFileName);
-    } else if (inputFileName.extension()==".ESMRY"){
+    } else if (ext == ".ESMRY") {
         filetype = ESMRY;
         ext_esmry = std::make_unique<Opm::EclIO::ExtESmry>(inputFileName);
-    } else
+    } else {
         throw std::runtime_error("invalid input file for summary");
-
+    }
 
     if (listKeys){
         std::vector<std::string> list;
@@ -141,7 +154,7 @@ int main(int argc, char **argv) {
     std::vector<std::string> smryList;
     for (int i=0; i<argc - argOffset-1; i++) {
 
-        bool hasKey;
+        bool hasKey = false;
 
         switch(filetype) {
         case SMSPEC:
@@ -172,8 +185,7 @@ int main(int argc, char **argv) {
                 return EXIT_FAILURE;
             }
 
-            for (auto vect : list)
-                smryList.push_back(vect);
+            smryList.insert(smryList.end(), list.begin(), list.end());
         }
     }
 
@@ -186,10 +198,10 @@ int main(int argc, char **argv) {
     std::vector<std::vector<float>> smryData;
     std::vector<int> width;
 
-    for (auto name : smryList)
-        width.push_back(name.size());
+    std::transform(smryList.begin(), smryList.end(), std::back_inserter(width),
+                   [](const auto& name) { return name.size(); });
 
-    for (auto key : smryList) {
+    for (const auto& key : smryList) {
         std::vector<float> vect;
 
         switch(filetype) {
@@ -203,17 +215,22 @@ int main(int argc, char **argv) {
 
         smryData.push_back(vect);
     }
-
-    printHeader(smryList, width);
+    
+    if (headers)
+        printHeader(smryList, width);
 
     for (size_t s=0; s<smryData[0].size(); s++){
         for (size_t n=0; n < smryData.size(); n++){
-            std::cout << formatString(smryData[n][s], width[n]);
+            if (headers)
+                std::cout << formatString(smryData[n][s], width[n]);
+            else
+                std::cout << std::scientific << std::setprecision(8) << smryData[n][s] << " ";
         }
         std::cout << std::endl;
     }
-
-    std::cout << std::endl;
-
+ 
+    if (headers)
+        std::cout << std::endl;
+    
     return 0;
 }

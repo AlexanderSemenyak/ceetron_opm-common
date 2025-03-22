@@ -59,15 +59,6 @@ BOOST_AUTO_TEST_CASE(CreateWLIST) {
     BOOST_CHECK( std::find(wells.begin(), wells.end(), "W1") != wells.end());
     BOOST_CHECK( std::find(wells.begin(), wells.end(), "W2") != wells.end());
     BOOST_CHECK( std::find(wells.begin(), wells.end(), "W3") != wells.end());
-
-    std::vector<std::string> wells2;
-    for (const auto& well : wlist.wells())
-        wells2.push_back(well);
-
-    BOOST_CHECK_EQUAL(wells2.size(), 3U);
-    BOOST_CHECK( std::find(wells2.begin(), wells2.end(), "W1") != wells2.end());
-    BOOST_CHECK( std::find(wells2.begin(), wells2.end(), "W2") != wells2.end());
-    BOOST_CHECK( std::find(wells2.begin(), wells2.end(), "W3") != wells2.end());
 }
 
 
@@ -81,11 +72,11 @@ BOOST_AUTO_TEST_CASE(WLISTManager) {
     // If a new list is added with the same name as an existing list the old
     // list is dropped and a new list is created.
     {
-        auto& wlist1 = wlm.newList("LIST1", {});
+        const auto& wlist1 = wlm.newList("LIST1", {});
         BOOST_CHECK_EQUAL(wlist1.size(), 0U);
     }
-    auto& wlist1 = wlm.newList("LIST1", {"W1", "W2", "W3"});
-    auto& wlist2 = wlm.newList("LIST2", {"W1", "W2", "W3"});
+    const auto& wlist1 = wlm.newList("LIST1", {"W1", "W2", "W3"});
+    const auto& wlist2 = wlm.newList("LIST2", {"W1", "W2", "W3"});
 
     // The delWell operation will work across all well lists.
     wlm.delWell("W1");

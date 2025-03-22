@@ -57,6 +57,7 @@
 #include <opm/input/eclipse/EclipseState/Tables/Eqldims.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/Regdims.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/TLMixpar.hpp>
+#include <opm/input/eclipse/EclipseState/Tables/Ppcwmax.hpp>
 
 namespace Opm {
 
@@ -78,6 +79,7 @@ namespace Opm {
         const Aqudims& getAqudims() const;
         const Regdims& getRegdims() const;
         const TLMixpar& getTLMixpar() const;
+        const Ppcwmax& getPpcwmax() const;
         /*
           WIll return max{ Tabdims::NTFIP , Regdims::NTFIP }.
         */
@@ -100,6 +102,7 @@ namespace Opm {
         const TableContainer& getSaltvdTables() const;
         const TableContainer& getSaltpvdTables() const;
         const TableContainer& getSaltsolTables() const;
+        const TableContainer& getPcfactTables() const;
         const TableContainer& getPermfactTables() const;
         const TableContainer& getEnkrvdTables() const;
         const TableContainer& getEnptvdTables() const;
@@ -132,6 +135,9 @@ namespace Opm {
         const TableContainer& getMsfnTables() const;
         const TableContainer& getTlpmixpaTables() const;
 
+        const TableContainer& getWsfTables() const;
+        const TableContainer& getGsfTables() const;
+
         const JFunc& getJFunc() const;
 
         const std::vector<PvtgTable>& getPvtgTables() const;
@@ -161,6 +167,8 @@ namespace Opm {
         const PvcdoTable& getPvcdoTable() const;
         const DensityTable& getDensityTable() const;
         const DiffCoeffTable& getDiffusionCoefficientTable() const;
+        const DiffCoeffWatTable& getDiffusionCoefficientWaterTable() const;
+        const DiffCoeffGasTable& getDiffusionCoefficientGasTable() const;
         const PlyvmhTable& getPlyvmhTable() const;
         const RockTable& getRockTable() const;
         const ViscrefTable& getViscrefTable() const;
@@ -194,6 +202,8 @@ namespace Opm {
 
         double salinity() const;
 
+        bool diffMoleFraction() const;
+
         bool operator==(const TableManager& data) const;
 
         template<class Serializer>
@@ -217,6 +227,8 @@ namespace Opm {
             serializer(m_pvcdoTable);
             serializer(m_densityTable);
             serializer(m_diffCoeffTable);
+            serializer(m_diffCoeffWatTable);
+            serializer(m_diffCoeffGasTable);
             serializer(m_plyvmhTable);
             serializer(m_rockTable);
             serializer(m_plmixparTable);
@@ -252,7 +264,9 @@ namespace Opm {
             serializer(m_gas_comp_index);
             serializer(m_rtemp);
             serializer(m_salinity);
+            serializer(m_diff_mole_fraction);
             serializer(m_tlmixpar);
+            serializer(m_ppcwmax);
             if (!serializer.isSerializing()) {
                 m_simpleTables = simpleTables;
                 if (split.plyshMax > 0) {
@@ -282,7 +296,6 @@ namespace Opm {
         void initRTempTables(const Deck& deck);
         void initDims(const Deck& deck);
         void initRocktabTables(const Deck& deck);
-        void initGasvisctTables(const Deck& deck);
 
         void initPlymaxTables(const Deck& deck);
         void initPlyrockTables(const Deck& deck);
@@ -361,6 +374,8 @@ namespace Opm {
         PvcdoTable m_pvcdoTable;
         DensityTable m_densityTable;
         DiffCoeffTable m_diffCoeffTable;
+        DiffCoeffWatTable m_diffCoeffWatTable;
+        DiffCoeffGasTable m_diffCoeffGasTable;
         PlyvmhTable m_plyvmhTable;
         RockTable m_rockTable;
         PlmixparTable m_plmixparTable;
@@ -383,6 +398,7 @@ namespace Opm {
         Eqldims m_eqldims;
         Aqudims m_aqudims;
         TLMixpar m_tlmixpar;
+        Ppcwmax m_ppcwmax;
 
         bool hasImptvd = false;// if deck has keyword IMPTVD
         bool hasEnptvd = false;// if deck has keyword ENPTVD
@@ -400,6 +416,7 @@ namespace Opm {
         std::size_t m_gas_comp_index = 77;
         double m_rtemp {288.7056}; // 60 Fahrenheit in Kelvin
         double m_salinity {0.0};
+        bool m_diff_mole_fraction {true};
 
         struct SplitSimpleTables {
           size_t plyshMax = 0;

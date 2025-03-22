@@ -102,6 +102,8 @@ struct RstWell
     float resv_target;
     float thp_target;
     float bhp_target_float;
+    float vfp_bhp_adjustment;
+    float vfp_bhp_scaling_factor;
     float hist_lrat_target;
     float hist_grat_target;
     float hist_bhp_target;
@@ -124,6 +126,9 @@ struct RstWell
     float glift_min_rate;
     float glift_weight_factor;
     float glift_inc_weight_factor;
+    float dfac_corr_coeff_a{};
+    float dfac_corr_exponent_b{};
+    float dfac_corr_exponent_c{};
     std::vector<float> tracer_concentration_injection;
 
     double oil_rate;
@@ -151,6 +156,8 @@ struct RstWell
     double hist_gas_inj_total;
     double water_void_rate;
     double gas_void_rate;
+
+    static constexpr auto UNDEFINED_VALUE = 1.0e20f;
 
     const RstSegment& segment(int segment_number) const;
     std::vector<RstConnection> connections;

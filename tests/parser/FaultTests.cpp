@@ -17,8 +17,11 @@
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "opm/input/eclipse/Deck/Deck.hpp"
+#include "opm/input/eclipse/EclipseState/EclipseState.hpp"
+#include "opm/input/eclipse/Parser/Parser.hpp"
 #include <stdexcept>
-#include <iostream>
+#include <ostream>
 
 #define BOOST_TEST_MODULE FaultTests
 
@@ -49,14 +52,13 @@ BOOST_AUTO_TEST_CASE(CreateFace) {
     Opm::FaultFace face2(10,10,10,0, 2  , 1 , 1 , 0 , 0 , Opm::FaceDir::YPlus);
     Opm::FaultFace face3(10,10,10,0, 2  , 0 , 0 , 1 , 1 , Opm::FaceDir::YPlus);
 
-    std::vector<size_t> trueValues1{0,1,2};
-    std::vector<size_t> trueValues2{10,11,12};
-    std::vector<size_t> trueValues3{100,101,102};
-    size_t i = 0;
-
     {
+        const std::vector<size_t> trueValues1{0,1,2};
+        const std::vector<size_t> trueValues2{10,11,12};
+        const std::vector<size_t> trueValues3{100,101,102};
         auto iter3 = face3.begin();
         auto iter2 = face2.begin();
+        size_t i = 0;
         for (auto iter1 = face1.begin(); iter1 != face1.end(); ++iter1) {
             size_t index1 = *iter1;
             size_t index2 = *iter2;
@@ -104,7 +106,7 @@ BOOST_AUTO_TEST_CASE(AddFaceToFaults) {
         auto iter = fault.begin();
         BOOST_CHECK_EQUAL( *iter , face1 ); ++iter;
         BOOST_CHECK_EQUAL( *iter , face2 ); ++iter;
-        BOOST_CHECK_EQUAL( *iter , face3 ); ++iter;
+        BOOST_CHECK_EQUAL( *iter , face3 );
     }
 
 }
@@ -135,4 +137,257 @@ BOOST_AUTO_TEST_CASE(AddFaultsToCollection) {
     BOOST_CHECK_EQUAL( faults.size() , 2U );
     BOOST_CHECK(faults.hasFault("FAULTX"));
     BOOST_CHECK_EQUAL( faultx.getName() , faults.getFault(1).getName());
+}
+
+BOOST_AUTO_TEST_CASE(GridOnly) {
+    const std::string deck_string = R"(
+RUNSPEC
+DIMENS
+  10 10 10 /
+GRID
+DX
+1000*0.25 /
+DY
+1000*0.25 /
+DZ
+1000*0.25 /
+TOPS
+100*0.25 /
+FAULTS
+  'FLT1' 3 3 1 4 1 7 'X' /
+  'FLT2' 1 8 4 4 1 7 'Y' /
+/
+MULTFLT
+  'FLT1' 0.0001 /
+  'FLT2' 0.0005 /
+/
+MULTFLT
+  'FLT1' 0.001 /
+/
+)";
+
+    Opm::Parser parser;
+    Opm::Deck deck = parser.parseString(deck_string);
+    Opm::EclipseState state(deck);
+    const auto& flt1 = state.getFaults().getFault("FLT1");
+    BOOST_CHECK_EQUAL(flt1.getTransMult(), 0.001);
+    const auto& flt2 = state.getFaults().getFault("FLT2");
+    BOOST_CHECK_EQUAL(flt2.getTransMult(), 0.0005);
+}
+
+BOOST_AUTO_TEST_CASE(Pattern) {
+    const std::string deck_string = R"(
+RUNSPEC
+DIMENS
+  10 10 10 /
+GRID
+DX
+1000*0.25 /
+DY
+1000*0.25 /
+DZ
+1000*0.25 /
+TOPS
+100*0.25 /
+FAULTS
+  'FLT1' 3 3 1 4 1 7 'X' /
+  'FLT2' 1 8 4 4 1 7 'Y' /
+/
+MULTFLT
+  'FLT*' 0.0001 /
+/
+)";
+
+    Opm::Parser parser;
+    Opm::Deck deck = parser.parseString(deck_string);
+    Opm::EclipseState state(deck);
+    const auto& flt1 = state.getFaults().getFault("FLT1");
+    BOOST_CHECK_EQUAL(flt1.getTransMult(), 0.0001);
+    const auto& flt2 = state.getFaults().getFault("FLT2");
+    BOOST_CHECK_EQUAL(flt2.getTransMult(), 0.0001);
+}
+
+BOOST_AUTO_TEST_CASE(PatternTrunc) {
+    const std::string deck_string = R"(
+RUNSPEC
+DIMENS
+  10 10 10 /
+GRID
+DX
+1000*0.25 /
+DY
+1000*0.25 /
+DZ
+1000*0.25 /
+TOPS
+100*0.25 /
+FAULTS
+  'FLT11' 3 3 1 4 1 7 'X' /
+  'FLT12' 3 3 1 4 1 7 'X' /
+  'FLT22' 1 8 4 4 1 7 'Y' /
+/
+MULTFLT
+  'FLT*1' 0.0001 /
+  'FLT2*' 0.0005 /
+/
+)";
+
+    Opm::Parser parser;
+    Opm::Deck deck = parser.parseString(deck_string);
+    Opm::EclipseState state(deck);
+    const auto& flt1 = state.getFaults().getFault("FLT11");
+    BOOST_CHECK_EQUAL(flt1.getTransMult(), 0.0001);
+    const auto& flt12 = state.getFaults().getFault("FLT12");
+    BOOST_CHECK_EQUAL(flt12.getTransMult(), 0.0001);
+    const auto& flt2 = state.getFaults().getFault("FLT22");
+    BOOST_CHECK_EQUAL(flt2.getTransMult(), 0.0005);
+}
+
+BOOST_AUTO_TEST_CASE(EditOnly) {
+    const std::string deck_string = R"(
+RUNSPEC
+DIMENS
+  10 10 10 /
+GRID
+DX
+1000*0.25 /
+DY
+1000*0.25 /
+DZ
+1000*0.25 /
+TOPS
+100*0.25 /
+FAULTS
+  'FLT1' 3 3 1 4 1 7 'X' /
+  'FLT2' 1 8 4 4 1 7 'Y' /
+/
+EDIT
+MULTFLT
+  'FLT1' 0.0001 /
+  'FLT2' 0.0005 /
+/
+MULTFLT
+  'FLT1' 0.001 /
+/
+)";
+
+    Opm::Parser parser;
+    Opm::Deck deck = parser.parseString(deck_string);
+    Opm::EclipseState state(deck);
+    const auto& flt1 = state.getFaults().getFault("FLT1");
+    BOOST_CHECK_EQUAL(flt1.getTransMult(), 0.001);
+    const auto& flt2 = state.getFaults().getFault("FLT2");
+    BOOST_CHECK_EQUAL(flt2.getTransMult(), 0.0005);
+}
+
+BOOST_AUTO_TEST_CASE(GridAndEdit) {
+    const std::string deck_string = R"(
+RUNSPEC
+DIMENS
+  10 10 10 /
+GRID
+DX
+1000*0.25 /
+DY
+1000*0.25 /
+DZ
+1000*0.25 /
+TOPS
+100*0.25 /
+FAULTS
+  'FLT1' 3 3 1 4 1 7 'X' /
+  'FLT2' 1 8 4 4 1 7 'Y' /
+/
+MULTFLT
+  'FLT1' 0.0001 /
+/
+EDIT
+MULTFLT
+  'FLT1' 20 /
+  'FLT2' 0.0005 /
+/
+)";
+
+    Opm::Parser parser;
+    Opm::Deck deck = parser.parseString(deck_string);
+    Opm::EclipseState state(deck);
+    const auto& flt1 = state.getFaults().getFault("FLT1");
+    BOOST_CHECK_EQUAL(flt1.getTransMult(), 0.002);
+    const auto& flt2 = state.getFaults().getFault("FLT2");
+    BOOST_CHECK_EQUAL(flt2.getTransMult(), 0.0005);
+}
+
+BOOST_AUTO_TEST_CASE(GridAndEdit2) {
+    const std::string deck_string = R"(
+RUNSPEC
+DIMENS
+  10 10 10 /
+GRID
+DX
+1000*0.25 /
+DY
+1000*0.25 /
+DZ
+1000*0.25 /
+TOPS
+100*0.25 /
+FAULTS
+  'FLT1' 3 3 1 4 1 7 'X' /
+/
+MULTFLT
+  'FLT1' 5.0 /
+  'FLT1' 0.0001 /
+/
+EDIT
+MULTFLT
+  'FLT1' 0.0005 /
+  'FLT1' 20 /
+/
+)";
+
+    Opm::Parser parser;
+    Opm::Deck deck = parser.parseString(deck_string);
+    Opm::EclipseState state(deck);
+    const auto& flt1 = state.getFaults().getFault("FLT1");
+    BOOST_CHECK_EQUAL(flt1.getTransMult(), 0.002);
+}
+
+BOOST_AUTO_TEST_CASE(GridAndEditPattern) {
+    const std::string deck_string = R"(
+RUNSPEC
+DIMENS
+  10 10 10 /
+GRID
+DX
+1000*0.25 /
+DY
+1000*0.25 /
+DZ
+1000*0.25 /
+TOPS
+100*0.25 /
+FAULTS
+  'FLT11' 3 3 1 4 1 7 'X' /
+  'FLT12' 3 3 1 4 1 7 'X' /
+  'FLT22' 1 8 4 4 1 7 'Y' /
+/
+MULTFLT
+  'FLT*1' 0.0001 /
+/
+EDIT
+MULTFLT
+  'FLT1*' 20 /
+  'FLT2*' 0.0005 /
+/
+)";
+
+    Opm::Parser parser;
+    Opm::Deck deck = parser.parseString(deck_string);
+    Opm::EclipseState state(deck);
+    const auto& flt1 = state.getFaults().getFault("FLT11");
+    BOOST_CHECK_EQUAL(flt1.getTransMult(), 0.0001 * 20);
+    const auto& flt12 = state.getFaults().getFault("FLT12");
+    BOOST_CHECK_EQUAL(flt12.getTransMult(), 0.0001 * 20);
+    const auto& flt2 = state.getFaults().getFault("FLT22");
+    BOOST_CHECK_EQUAL(flt2.getTransMult(), 0.0001 * 0.0005);
 }

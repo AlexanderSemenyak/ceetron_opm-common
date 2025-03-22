@@ -5,6 +5,7 @@
 
 #include "export.hpp"
 
+#include <python/cxx/OpmCommonPythonDoc.hpp>
 
 namespace {
 
@@ -96,6 +97,8 @@ namespace {
 
 void python::common::export_EclipseState(py::module& module) {
 
+    using namespace Opm::Common::DocStrings;
+
     // Note: In the below class we std::shared_ptr as the holder type, see:
     //
     //  https://pybind11.readthedocs.io/en/stable/advanced/smart_ptrs.html
@@ -103,19 +106,19 @@ void python::common::export_EclipseState(py::module& module) {
     // this makes it possible to share the returned object with e.g. and
     //   opm.simulators.BlackOilSimulator Python object
     //
-    py::class_< EclipseState, std::shared_ptr<EclipseState> >( module, "EclipseState" )
-        .def(py::init<const Deck&>())
-        .def_property_readonly( "title", &EclipseState::getTitle )
-        .def( "field_props",    &get_field_props, ref_internal)
-        .def( "grid",           &EclipseState::getInputGrid, ref_internal)
-        .def( "config",         &EclipseState::cfg, ref_internal)
-        .def( "tables",         &EclipseState::getTableManager, ref_internal)
-        .def( "has_input_nnc",  &EclipseState::hasInputNNC )
-        .def( "simulation",     &EclipseState::getSimulationConfig, ref_internal)
-        .def( "input_nnc",      &getNNC )
-        .def( "faultNames",     &faultNames )
-        .def( "faultFaces",     &faultFaces )
-        .def( "jfunc",          &jfunc )
+    py::class_< EclipseState, std::shared_ptr<EclipseState> >( module, "EclipseState", EclipseStateClass_docstring)
+        .def(py::init<const Deck&>(), py::arg("deck"), EclipseState_init_docstring)
+        .def_property_readonly( "title", &EclipseState::getTitle, EclipseState_title_docstring)
+        .def( "field_props",    &get_field_props, ref_internal, EclipseState_field_props_docstring)
+        .def( "grid",           &EclipseState::getInputGrid, ref_internal, EclipseState_grid_docstring)
+        .def( "config",         &EclipseState::cfg, ref_internal, EclipseState_config_docstring)
+        .def( "tables",         &EclipseState::getTableManager, ref_internal, EclipseState_tables_docstring)
+        .def( "has_input_nnc",  &EclipseState::hasInputNNC, EclipseState_has_input_nnc_docstring)
+        .def( "simulation",     &EclipseState::getSimulationConfig, ref_internal, EclipseState_simulation_docstring)
+        .def( "input_nnc",      &getNNC, EclipseState_input_nnc_docstring)
+        .def( "faultNames",     &faultNames, EclipseState_faultNames_docstring)
+        .def( "faultFaces",     &faultFaces, py::arg("fault_name"), EclipseState_faultFaces_docstring)
+        .def( "jfunc",          &jfunc, EclipseState_jfunc_docstring)
         ;
 
 }

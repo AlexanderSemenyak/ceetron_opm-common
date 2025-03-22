@@ -74,17 +74,17 @@ public:
         serializer(var_type);
     }
 
-    std::size_t insert_index;
-    std::size_t typed_insert_index;
-    UDQAction action;
-    UDQVarType var_type;
+    std::size_t insert_index{};
+    std::size_t typed_insert_index{};
+    UDQAction action{UDQAction::ASSIGN};
+    UDQVarType var_type{UDQVarType::NONE};
 };
 
 class UDQInput
 {
 public:
-    UDQInput(const UDQIndex& index, const UDQDefine& udq_define, const std::string& unit);
-    UDQInput(const UDQIndex& index, const UDQAssign& udq_assign, const std::string& unit);
+    UDQInput(const UDQIndex& index, const UDQDefine* udq_define, const std::string& unit);
+    UDQInput(const UDQIndex& index, const UDQAssign* udq_assign, const std::string& unit);
 
     template <typename T>
     const T& get() const;
@@ -92,18 +92,18 @@ public:
     template <typename T>
     bool is() const;
 
-    const std::string& keyword() const;
-    const UDQVarType& var_type() const;
-    const std::string& unit() const;
+    const std::string& keyword()  const { return this->m_keyword; }
+    const std::string& unit()     const { return this->m_unit; }
+    UDQVarType         var_type() const { return this->m_var_type; }
     const UDQIndex index;
 
     bool operator==(const UDQInput& other) const;
 
 private:
-    std::variant<UDQDefine, UDQAssign> value;
-    std::string m_keyword;
-    UDQVarType m_var_type;
-    std::string m_unit;
+    std::variant<const UDQDefine*, const UDQAssign*> value{};
+    std::string m_keyword{};
+    UDQVarType m_var_type{UDQVarType::NONE};
+    std::string m_unit{};
 };
 
 } // namespace Opm

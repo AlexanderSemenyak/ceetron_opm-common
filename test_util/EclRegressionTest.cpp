@@ -34,15 +34,14 @@
 #include <opm/common/utility/numeric/cmp.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <set>
-#include <type_traits>
 #include <typeinfo>
+#include <unordered_set>
 #include <vector>
 
 // helper macro to handle error throws or not
@@ -111,8 +110,12 @@ void ECLRegressionTest::compareFloatingPointVectors(const std::vector<T>& t1, co
     }
 
     if (t1.size() != t2.size()) {
-        HANDLE_ERROR(std::runtime_error, "\nError trying to compare two vectors with different size " << keyword << " - " << reference
-                     << "\n > size of first vector : " << t1.size() << "\n > size of second vector: " << t2.size());
+        HANDLE_ERROR(std::runtime_error,
+                     fmt::format("\nError trying to compare two vectors "
+                                 "with different size {} - {}"
+                                 "\n > size of first vector : {}"
+                                 "\n > size of second vector: {}",
+                                 keyword, reference, t1.size(), t2.size()));
     }
 
     auto it = std::find(keywordDisallowNegatives.begin(), keywordDisallowNegatives.end(), keyword);
@@ -134,12 +137,19 @@ template <typename T>
 void ECLRegressionTest::compareVectors(const std::vector<T>& t1, const std::vector<T>& t2, const std::string& keyword, const std::string& reference) {
 
     if (t1.size() != t2.size()) {
-        HANDLE_ERROR(std::runtime_error, "\nError trying to compare two vectors with different size " << keyword << " - " << reference
-                     << "\n > size of first vector : " << t1.size() << "\n > size of second vector: " << t2.size());
+        HANDLE_ERROR(std::runtime_error,
+                     fmt::format("\nError trying to compare two vectors "
+                                 "with different size {} - {}"
+                                 "\n > size of first vector : {}"
+                                 "\n > size of second vector: {}",
+                                 keyword, reference, t1.size(), t2.size()));
+
     }
 
     if (typeid(T) == typeid(float) || typeid(T) == typeid(double)) {
-        HANDLE_ERROR(std::runtime_error, "\nMember function compareVectors should not be used with floating point vectors ");
+        HANDLE_ERROR(std::runtime_error,
+                     "\nMember function compareVectors should not be used "
+                     "with floating point vectors");
     }
 
     bool result = t1 == t2 ? true : false ;
@@ -171,8 +181,9 @@ void ECLRegressionTest::deviationsForCell(double val1, double val2, const std::s
         if (val1 < 0) {
             if (std::abs(val1) > absToleranceLoc) {
                 printValuesForCell(keyword, reference, kw_size, cell, grid1, val1, val2);
-                HANDLE_ERROR(std::runtime_error, "Negative value in first file, "
-                             << "which in absolute value exceeds the absolute tolerance of " << absToleranceLoc << ".");
+                HANDLE_ERROR(std::runtime_error,
+                             fmt::format("Negative value in first file which in absolute value "
+                                          "exceeds the absolute tolerance of {}.", absToleranceLoc));
             }
             val1 = 0;
         }
@@ -180,8 +191,9 @@ void ECLRegressionTest::deviationsForCell(double val1, double val2, const std::s
         if (val2 < 0) {
             if (std::abs(val2) > absToleranceLoc) {
                 printValuesForCell(keyword, reference, kw_size, cell, grid1, val1, val2);
-                HANDLE_ERROR(std::runtime_error, "Negative value in second file, "
-                             << "which in absolute value exceeds the absolute tolerance of " << absToleranceLoc << ".");
+                HANDLE_ERROR(std::runtime_error,
+                             fmt::format("Negative value in second file which in absolute value "
+                                         "exceeds the absolute tolerance of {}.", absToleranceLoc));
             }
             val2 = 0;
         }
@@ -199,9 +211,14 @@ void ECLRegressionTest::deviationsForCell(double val1, double val2, const std::s
                 std::cout << "Keyword: " << keyword << " requires strict tolerances.\n" << std::endl;
             }
 
-            HANDLE_ERROR(std::runtime_error, "Deviations exceed tolerances."
-                         << "\nThe absolute deviation is " << dev.abs << ", and the tolerance limit is " << absToleranceLoc << "."
-                         << "\nThe relative deviation is " << dev.rel << ", and the tolerance limit is " << relToleranceLoc << ".");
+            HANDLE_ERROR(std::runtime_error,
+                         fmt::format("Deviations exceed tolerances."
+                                     "\nThe absolute deviation is {}, "
+                                     "and the tolerance limit is {}."
+                                     "\nThe relative deviation is {}, "
+                                     "and the tolerance limit is {}.",
+                                     dev.abs, absToleranceLoc,
+                                     dev.rel, relToleranceLoc));
         }
     }
 
@@ -245,7 +262,7 @@ void ECLRegressionTest::printDeviationReport()
 
 void ECLRegressionTest::compareKeywords(const std::vector<std::string> &keywords1, const std::vector<std::string> &keywords2, const std::string &reference) {
 
-    if (!acceptExtraKeywords) {
+    if (!(acceptExtraKeywords or acceptExtraKeywordsBoth)) {
         if (keywords1 != keywords2) {
             std::cout << "not same keywords in " << reference << std::endl;
 
@@ -254,12 +271,15 @@ void ECLRegressionTest::compareKeywords(const std::vector<std::string> &keywords
             } else {
                 printComparisonForKeywordLists(keywords1,keywords2);
             }
-            OPM_THROW(std::runtime_error, "\nKeywords not identical in " << reference);
+            OPM_THROW(std::runtime_error,
+                      "\nKeywords not identical in " + reference);
         }
     } else {
+        int extraKeywordsFirstFile = 0;
         for (auto& keyword : keywords1) {
             auto it1 = std::find(keywords2.begin(), keywords2.end(), keyword);
             if (it1 == keywords2.end()) {
+                extraKeywordsFirstFile++;
                 std::cout << "Keyword " << keyword << " missing in second file " << std::endl;
 
                 if (keywords1.size() > 50) {
@@ -267,21 +287,28 @@ void ECLRegressionTest::compareKeywords(const std::vector<std::string> &keywords
                 } else {
                     printComparisonForKeywordLists(keywords1, keywords2);
                 }
-
-                OPM_THROW(std::runtime_error, "\nKeyword " << keyword << " missing in second file ");
+                if (!acceptExtraKeywordsBoth) {
+                    OPM_THROW(std::runtime_error,
+                              "\nKeyword " + keyword + " missing in second file ");
+                }
             }
         }
 
-        if (keywords2.size() > keywords1.size()) {
+        if (keywords2.size() > keywords1.size() - extraKeywordsFirstFile) {
             std::cout << "\nExtra keywords ("
-                      << std::to_string(keywords2.size() - keywords1.size())
+                      << std::to_string(keywords2.size() - keywords1.size() + extraKeywordsFirstFile)
                       << ") accepted in second file " << std::endl;
+        }
+        if (extraKeywordsFirstFile > 0) {
+            std::cout << "\nExtra keywords ("
+                      << extraKeywordsFirstFile
+                      << ") accepted in first file " << std::endl;
         }
     }
 }
 
 
-void ECLRegressionTest::checkSpesificKeyword(std::vector<std::string>& keywords1,
+void ECLRegressionTest::checkSpecificKeyword(std::vector<std::string>& keywords1,
                                              std::vector<std::string>& keywords2,
                                              std::vector<eclArrType>& arrayType1,
                                              std::vector<eclArrType>& arrayType2,
@@ -291,18 +318,25 @@ void ECLRegressionTest::checkSpesificKeyword(std::vector<std::string>& keywords1
     auto search2 = std::find(keywords2.begin(), keywords2.end(), specificKeyword);
 
     if (search1 == keywords1.end() && search2 == keywords2.end()) {
-        std::cout << "Testing specific keyword \"" << specificKeyword << "\" in " << reference << ". Keyword not found in any of the cases ." << std::endl;
-        OPM_THROW(std::runtime_error, "\nTesting specific keyword \"" << specificKeyword << "\" in " << reference << ". Keyword not found in any of the cases .");
+        const std::string msg =
+            fmt::format("Testing specific keyword \"{}\" in {}. "
+                        "Keyword not found in any of the cases.",
+                        specificKeyword, reference);
+        std::cout << msg << std::endl;
+        OPM_THROW(std::runtime_error, "\n" + msg);
     }
 
-    eclArrType arrType;
     if (search1 != keywords1.end()) {
         int ind = std::distance(keywords1.begin(), search1);
-        arrType = arrayType1[ind];
+        const eclArrType arrType = arrayType1[ind];
 
         if (search2 == keywords2.end()) {
-            std::cout << "Testing specific kewyword in " << reference << ". Keyword found in fist case but not in second case." << std::endl;
-            OPM_THROW(std::runtime_error, "\nTesting specific kewyword in " << reference << ". Keyword found in fist case but not in second case.");
+            const std::string msg =
+                fmt::format("Testing specific keyword in {}. "
+                            "Keyword found in first case but "
+                            "not in second case.", reference);
+            std::cout << msg << std::endl;
+            OPM_THROW(std::runtime_error, "\n" + msg);
         }
 
         keywords1.clear();
@@ -316,8 +350,12 @@ void ECLRegressionTest::checkSpesificKeyword(std::vector<std::string>& keywords1
         arrayType2.push_back(arrType);
     } else {
         if (search2 != keywords2.end()) {
-            std::cout << "Testing specific kewyword in " << reference << ". Keyword not found in fist case but found in second case." << std::endl;
-            OPM_THROW(std::runtime_error, "\nTesting specific kewyword in " << reference << ". Keyword not found in fist case but found in second case.");
+            const std::string msg =
+                fmt::format("Testing specific keyword in {}. "
+                            "Keyword not found in first case but "
+                            "found in second case.", reference);
+            std::cout << msg << std::endl;
+            OPM_THROW(std::runtime_error, "\n "+ msg);
         }
 
         keywords1.clear();
@@ -403,9 +441,12 @@ void ECLRegressionTest::gridCompare()
         std::cout << "Dimensions             " << " ... ";
 
         if (dim1[0] != dim2[0]  || dim1[1] != dim2[1] || dim1[2] != dim2[2]) {
-            OPM_THROW(std::runtime_error, "\n Grid1 and grid2 have different dimensions.  "
-                      << "\n grid1 : "  << dim1[0] << "x" << dim1[1] << "x"<< dim1[2]
-                      << "\n grid2 : "  << dim2[0] << "x" << dim2[1] << "x"<< dim2[2]);
+            OPM_THROW(std::runtime_error,
+                      fmt::format("\n Grid1 and grid2 have different dimensions. "
+                                  "\n grid1 : {}x{}x{} "
+                                  "\n grid2 : {}x{}x{}",
+                                  dim1[0], dim1[1], dim1[2],
+                                  dim2[0], dim2[1], dim2[2]));
         }
 
         std::cout << " done." << std::endl;
@@ -416,8 +457,10 @@ void ECLRegressionTest::gridCompare()
             for (int j=0; j < dim1[1]; j++) {
                 for (int i = 0; i < dim2[0]; i++) {
                     if (grid1->active_index(i,j,k) != grid2->active_index(i,j,k)) {
-                        OPM_THROW(std::runtime_error, "\nGrid1 and grid2 have different definition of active cells. "
-                                  " First difference found for cell i="<< i+1 << " j=" << j+1 << " k=" << k+1);
+                        OPM_THROW(std::runtime_error,
+                                  fmt::format("\nGrid1 and grid2 have different definition of active cells. "
+                                              "First difference found for cell i={} j={} k={}",
+                                              i+1, j+1, k+1));
                     }
                 }
             }
@@ -451,8 +494,10 @@ void ECLRegressionTest::gridCompare()
                                 if (analysis) {
                                     deviations["xcoordinate"].push_back(devX);
                                 } else {
-                                    OPM_THROW(std::runtime_error, "\nGrid1 and grid2 have different X, Y and/or Z coordinates . "
-                                              " First difference found for cell i="<< i+1 << " j=" << j+1 << " k=" << k+1);
+                                    OPM_THROW(std::runtime_error,
+                                              fmt::format("\nGrid1 and grid2 have different X coordinates. "
+                                                          "First difference found for cell i={} j={} k={}",
+                                                          i+1, j+1, k+1));
                                 }
                             }
 
@@ -460,8 +505,10 @@ void ECLRegressionTest::gridCompare()
                                 if (analysis) {
                                     deviations["ycoordinate"].push_back(devY);
                                 } else {
-                                    OPM_THROW(std::runtime_error, "\nGrid1 and grid2 have different X, Y and/or Z coordinates . "
-                                              " First difference found for cell i="<< i+1 << " j=" << j+1 << " k=" << k+1);
+                                    OPM_THROW(std::runtime_error,
+                                              fmt::format("\nGrid1 and grid2 have different Y coordinates. "
+                                                          "First difference found for cell i={} j={} k={}",
+                                                          i+1, j+1, k+1));
                                 }
                             }
 
@@ -469,8 +516,10 @@ void ECLRegressionTest::gridCompare()
                                 if (analysis) {
                                     deviations["zcoordinate"].push_back(devZ);
                                 } else {
-                                    OPM_THROW(std::runtime_error, "\nGrid1 and grid2 have different X, Y and/or Z coordinates . "
-                                              " First difference found for cell i="<< i+1 << " j=" << j+1 << " k=" << k+1);
+                                    OPM_THROW(std::runtime_error,
+                                              fmt::format("\nGrid1 and grid2 have different Z coordinates. "
+                                                          "First difference found for cell i={} j={} k={}",
+                                                          i+1, j+1, k+1));
                                 }
                             }
                         }
@@ -497,8 +546,10 @@ void ECLRegressionTest::gridCompare()
             std::vector<int> NNC22 = grid2->get<int>("NNC2");
 
             if (NNC11.size() != NNC12.size() || NNC21.size() != NNC22.size()) {
-                OPM_THROW(std::runtime_error, "\n Grid1 and grid2 have different number of NNCs. "
-                          << " \n Grid1:  " << NNC11.size() << ",  Grid2:  " << NNC12.size() );
+                OPM_THROW(std::runtime_error,
+                          fmt::format("\n Grid1 and grid2 have different number of NNCs. "
+                                      "\n Grid1: {}, Grid2: {}",
+                                      NNC11.size(), NNC12.size()));
             }
 
             for (size_t n = 0; n < NNC11.size(); n++) {
@@ -559,8 +610,6 @@ void ECLRegressionTest::results_init()
         init1.loadData();
         init2.loadData();
 
-        std::string reference = "Init file";
-
         auto arrayList1 = init1.getList();
         auto arrayList2 = init2.getList();
 
@@ -584,6 +633,7 @@ void ECLRegressionTest::results_init()
             printComparisonForKeywordLists(keywords1,keywords2, arrayType1, arrayType2);
         } else {
             std::cout << "\nComparing init files \n" << std::endl;
+            std::string reference = "Init file";
 
             if (specificKeyword.empty()) {
                 if (keywords1.size() == keywords2.size() && keywords1 != keywords2) {
@@ -608,16 +658,22 @@ void ECLRegressionTest::results_init()
                 } else
                     compareKeywords(keywords1, keywords2, reference);
             } else {
-                checkSpesificKeyword(keywords1, keywords2, arrayType1, arrayType2, reference);
+                checkSpecificKeyword(keywords1, keywords2, arrayType1, arrayType2, reference);
             }
 
             for (size_t i = 0; i < keywords1.size(); i++) {
                 auto it1 = std::find(keywords2.begin(), keywords2.end(), keywords1[i]);
+                if (it1 == keywords2.end() and acceptExtraKeywordsBoth) {
+                    continue;
+                }
                 int ind2 = std::distance(keywords2.begin(),it1);
 
                 if (arrayType1[i] != arrayType2[ind2]) {
                     printComparisonForKeywordLists(keywords1, keywords2, arrayType1, arrayType2);
-                    OPM_THROW(std::runtime_error, "\nArray with same name '"<< keywords1[i] << "', but of different type. Init file ");
+                    OPM_THROW(std::runtime_error,
+                              fmt::format("\nArray with same name '{}', "
+                                          "but of different type. Init file",
+                                          keywords1[i]));
                 }
 
                 auto it = std::find(keywordsBlackList.begin(), keywordsBlackList.end(), keywords1[i]);
@@ -698,11 +754,17 @@ void ECLRegressionTest::results_rst()
             auto search2 = std::find(seqnums2.begin(), seqnums2.end(), specificSequence);
 
             if (search1 == seqnums1.end()) {
-                OPM_THROW(std::runtime_error, "\nSpecified sequence " << specificSequence << " not found in restart files for case 1");
+                OPM_THROW(std::runtime_error,
+                          fmt::format("\nSpecified sequence {} "
+                                      "not found in restart files for case 1",
+                                      specificSequence));
             }
 
             if (search2 == seqnums2.end()) {
-                OPM_THROW(std::runtime_error, "\nSpecified sequence " << specificSequence << " not found in restart files for case 2");
+                OPM_THROW(std::runtime_error,
+                          fmt::format("\nSpecified sequence {} "
+                                      "not found in restart files for case 2",
+                                      specificSequence));
             }
 
             seqnums1.clear();
@@ -728,15 +790,15 @@ void ECLRegressionTest::results_rst()
             std::vector<std::string> seqnStrList1;
             std::vector<std::string> seqnStrList2;
 
-            for (auto& val : seqnums1) {
-                seqnStrList1.push_back(std::to_string(val));
-            }
+            std::transform(seqnums1.begin(), seqnums1.end(),
+                           std::back_inserter(seqnStrList1),
+                           [](const auto& val) { return std::to_string(val); });
 
-            for (auto& val : seqnums2) {
-                seqnStrList2.push_back(std::to_string(val));
-            }
+            std::transform(seqnums2.begin(), seqnums2.end(),
+                           std::back_inserter(seqnStrList2),
+                           [](const auto& val) { return std::to_string(val); });
+
             std::cout << "\nrestart sequences " << std::endl;
-
             printComparisonForKeywordLists(seqnStrList1, seqnStrList2);
             OPM_THROW(std::runtime_error, "\nRestart files not having the same report steps: ");
         }
@@ -777,6 +839,8 @@ void ECLRegressionTest::results_rst()
                         auto search2 = std::find(keywords2.begin(), keywords2.end(), keywords1[i]);
                         if (search2 != keywords2.end()) {
                             keywords.push_back(keywords1[i]);
+                        } else if (acceptExtraKeywordsBoth) {
+                            continue;
                         }
                     }
                 }
@@ -794,23 +858,26 @@ void ECLRegressionTest::results_rst()
                 if (specificKeyword.empty()) {
                     compareKeywords(keywords1, keywords2, reference);
                 } else {
-                    checkSpesificKeyword(keywords1, keywords2, arrayType1, arrayType2, reference);
+                    checkSpecificKeyword(keywords1, keywords2, arrayType1, arrayType2, reference);
                 }
-
-                std::unordered_set<std::string> keywords = {"IGRP"};
-
 
                 for (size_t i = 0; i < keywords1.size(); i++) {
                     //if (keywords.count(keywords1[i]) == 0)
                     //    continue;
 
                     auto it1 = std::find(keywords2.begin(), keywords2.end(), keywords1[i]);
+                    if (it1 == keywords2.end() and acceptExtraKeywordsBoth) {
+                        continue;
+                    }
                     int ind2 = std::distance(keywords2.begin(), it1);
 
                     if (arrayType1[i] != arrayType2[ind2]) {
                         printComparisonForKeywordLists(keywords1, keywords2, arrayType1, arrayType2);
-                        OPM_THROW(std::runtime_error, "\nArray with same name '"<< keywords1[i] << "', but of different type. Restart file" <<
-                                  " sequenze " << std::to_string(seqn));
+                        OPM_THROW(std::runtime_error,
+                                  fmt::format("\nArray with same name '{}', "
+                                              "but of different type. "
+                                              "Restart file sequence {}",
+                                              keywords1[i], seqn));
                     }
 
                     auto it = std::find(keywordsBlackList.begin(), keywordsBlackList.end(), keywords1[i]);
@@ -928,6 +995,8 @@ void ECLRegressionTest::results_smry()
                 auto search2 = std::find(keywords2.begin(), keywords2.end(), kw);
                 if (search2 != keywords2.end()) {
                     keywords.push_back(kw);
+                } else if (acceptExtraKeywordsBoth) {
+                    continue;
                 }
             }
 
@@ -949,25 +1018,35 @@ void ECLRegressionTest::results_smry()
             if (specificKeyword.empty()) {
                 compareKeywords(keywords1, keywords2, reference);
             } else {
-                checkSpesificKeyword(keywords1, keywords2, arrayType1, arrayType2, reference);
+                checkSpecificKeyword(keywords1, keywords2, arrayType1, arrayType2, reference);
             }
 
+            // Remove blacklisted keywords
             std::vector<std::string> blackListed;
+            auto make_remover = [&blackListed](const std::vector<std::string>& _blacklist) {
+                                    return [&blacklist = _blacklist, &blackListed](const auto& kw)
+                                            {
+                                                const auto it = std::find(blacklist.begin(), blacklist.end(), kw);
+                                                if (it != blacklist.end()) {
+                                                    blackListed.push_back(kw);
+                                                }
+                                                return it != blacklist.end();
+                                            };
+                                };
 
-            for (std::vector<std::string>::iterator keywit = keywords1.begin(); keywit != keywords1.end(); ++keywit) {
-                auto it = std::find(keywordsBlackList.begin(), keywordsBlackList.end(), *keywit );
-
-                if (it != keywordsBlackList.end()){
-                    blackListed.push_back(*keywit);
-                    keywit = keywords1.erase(keywit);
-                    if (keywit != keywords1.end())
-                      --keywit;
-                }
-             }
+            keywords1.erase(std::remove_if(keywords1.begin(), keywords1.end(), make_remover(keywordsBlackList)), keywords1.end());
+            if (loadBaseRunData) {
+                keywords1.erase(std::remove_if(keywords1.begin(), keywords1.end(), make_remover(keywordsBlackListExtraRestart)), keywords1.end());
+            }
 
             std::cout << "\nChecking " << keywords1.size() << "  vectors  ... ";
 
             for (size_t i = 0; i < keywords1.size(); i++) {
+                auto it1 = std::find(keywords2.begin(), keywords2.end(), keywords1[i]);
+                if (it1 == keywords2.end() and acceptExtraKeywordsBoth) {
+                    std::cout << "\nSkipping comparison for kw " << keywords1[i];
+                    continue;
+                }
 
                 std::vector<float> vect1;
                 std::vector<float> vect2;
@@ -981,8 +1060,10 @@ void ECLRegressionTest::results_smry()
                 }
 
                 if (vect1.size() != vect2.size()) {
-                    OPM_THROW(std::runtime_error, "\nKeyword " << keywords1[i] << " summary vector of different length ("
-                              << vect1.size() << " != " << vect2.size() <<")");
+                    OPM_THROW(std::runtime_error,
+                              fmt::format("\nKeyword {} summary vector of "
+                                          "different length ({} != {})",
+                                          keywords1[i], vect1.size(), vect2.size()));
                 }
 
                 compareFloatingPointVectors(vect1, vect2, keywords1[i], reference);
@@ -1044,9 +1125,9 @@ void ECLRegressionTest::results_rft()
     bool foundRft1 = checkFileName(rootName1, "RFT", fileName1);
     bool foundRft2 = checkFileName(rootName2, "RFT", fileName2);
 
-    if ((foundRft1) && (not foundRft2)){
-        std::string message ="test case rft file " + rootName2 + ".RFT not found";
-	std::cout << message << std::endl;
+    if ((!foundRft1 && foundRft2) || (foundRft1 && !foundRft2)) {
+        std::string message ="test case rft file " + (foundRft1 ? rootName1 : rootName2) + ".RFT not found";
+        std::cout << message << std::endl;
         OPM_THROW(std::runtime_error, message);
     }
 
@@ -1117,7 +1198,7 @@ void ECLRegressionTest::results_rft()
                 if (specificKeyword.empty()) {
                     compareKeywords(keywords1, keywords2, reference);
                 } else {
-                    checkSpesificKeyword(keywords1, keywords2, arrayType1, arrayType2, reference);
+                    checkSpecificKeyword(keywords1, keywords2, arrayType1, arrayType2, reference);
                 }
 
                 for (auto& array : vectList1 ) {
@@ -1193,7 +1274,7 @@ void ECLRegressionTest::printComparisonForKeywordLists(const std::vector<std::st
         commonList.insert(key);
     }
 
-    for (auto& key : commonList) {
+    for (const auto& key : commonList) {
         if (key.size() > maxLen) {
             maxLen = key.size();
         }
@@ -1282,7 +1363,7 @@ void ECLRegressionTest::printComparisonForKeywordLists(const std::vector<std::st
         commonList.insert(key);
     }
 
-    for (auto& key : commonList) {
+    for (const auto& key : commonList) {
         if (key.size() > maxLen) {
             maxLen = key.size();
         }

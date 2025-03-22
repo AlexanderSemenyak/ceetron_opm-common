@@ -1,0 +1,25 @@
+{
+  "name": "MULT_XYZ",
+  "sections": [
+    "GRID",
+    "EDIT",
+    "SCHEDULE"
+  ],
+  "deck_names": [
+    "MULTTHT",
+    "MULTTHT-",
+    "MULTR",
+    "MULTR-",
+    "MULTX",
+    "MULTX-",
+    "MULTY",
+    "MULTY-",
+    "MULTZ",
+    "MULTZ-"
+  ],
+  "data": {
+    "value_type": "DOUBLE",
+    "default": 1.0,
+    "dimension": "1"
+  }
+}

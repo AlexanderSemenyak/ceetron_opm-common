@@ -1,9 +1,11 @@
 #include <tuple>
 
 #include <opm/input/eclipse/Schedule/Well/Well.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellConnections.hpp>
 #include <pybind11/stl.h>
 #include "export.hpp"
 
+#include <python/cxx/OpmCommonPythonDoc.hpp>
 
 namespace {
 
@@ -13,7 +15,7 @@ namespace {
     }
 
     std::string status( const Well& w )  {
-        return Well::Status2String( w.getStatus() );
+        return WellStatus2String( w.getStatus() );
     }
 
     std::string preferred_phase( const Well& w ) {
@@ -33,17 +35,19 @@ namespace {
 
 void python::common::export_Well(py::module& module) {
 
+    using namespace Opm::Common::DocStrings;
+
     py::class_< Well >( module, "Well")
         .def_property_readonly( "name", &Well::name )
         .def_property_readonly( "preferred_phase", &preferred_phase )
-        .def( "pos",             &get_pos )
+        .def( "pos",             &get_pos, Well_pos_docstring)
         .def( "status",          &status )
-        .def( "isdefined",       &Well::hasBeenDefined )
+        .def( "isdefined",       &Well::hasBeenDefined, Well_isdefined_docstring)
         .def( "isinjector",      &Well::isInjector )
         .def( "isproducer",      &Well::isProducer )
         .def( "group",           &Well::groupName )
         .def( "guide_rate",      &Well::getGuideRate )
-        .def( "available_gctrl", &Well::isAvailableForGroupControl )
-        .def( "connections",     &connections );
+        .def( "available_gctrl", &Well::isAvailableForGroupControl, Well_available_gctrl_docstring)
+        .def( "connections",     &connections, Well_connections_docstring);
 
 }

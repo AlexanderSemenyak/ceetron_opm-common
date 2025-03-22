@@ -75,7 +75,9 @@ bool operator==(const std::vector<T> & t1, const std::vector<T> & t2)
     return std::equal(t1.begin(), t1.end(), t2.begin(), t2.end());
 }
 
-void write_header(std::ofstream& ofileH, std::string& arrName, int size, std::string arrtype){
+void write_header(std::ofstream& ofileH, const std::string& arrName,
+                  int size, const std::string& arrtype)
+{
 
     int bhead = flipEndianInt(16);
     int fsize = flipEndianInt(size);
@@ -302,8 +304,7 @@ BOOST_AUTO_TEST_CASE(TestEcl_Write_binary) {
 
 BOOST_AUTO_TEST_CASE(TestEcl_Write_formatted) {
 
-    std::string inputFile="ECLFILE.FINIT";
-    std::string testFile="TEST.FDAT";
+    const std::string inputFile = "ECLFILE.FINIT";
 
     // loading vectors from formatted input file and write data back to a formatted file1
     // compare input and output file, and delete file.
@@ -319,6 +320,7 @@ BOOST_AUTO_TEST_CASE(TestEcl_Write_formatted) {
     // writing vectors to test file (TEST.FDAT) using class EclOutput
 
     {
+        const std::string testFile = "TEST.FDAT";
         WorkArea work;
         EclOutput eclTest(testFile, true);
 

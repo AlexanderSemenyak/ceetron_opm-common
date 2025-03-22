@@ -56,7 +56,7 @@ namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems 
                          //   1 => Cross flow IS supported.
 
             WGrupConControllable = 24, // Well controllable by group (WGRUPCON(2))
-                                       // -1 => YES, 0 => NO
+                                       // -1 => YES, 0 => NO (E100: 1 ==> YES and is active)
 
             EconLimitEndRun = 29,      // Whether or not to end simulation run at next report time
                                        // if well is shut or stopped for any reason (WECON(8)).
@@ -325,9 +325,15 @@ namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems 
 
             EconLimitMaxWct_2 = 71, // Well's secondary maximum water cut economic limit (WECON(11)).
 
-            EconLimitMinLiq   = 82, // Well's minimum liquid production rate economic limit (WECON(14)).
+            VfpBhpAdjustment  = 78, // Adjust well's BHP from VFP (WVFPDP(2))
 
+            EconLimitMinLiq   = 82, // Well's minimum liquid production rate economic limit (WECON(14)).
+            VfpBhpScalingFact = 83, // Tubing pressure loss scaling factor (WVFPDP(3))
             WGrupConGRScaling = 84, // Guide rate scaling factor (WGRUPCON(5))
+
+            DFacCorrCoeffA = 104, // Coefficient 'A' of D-factor correlation (WDFACCOR(2))
+            DFacCorrExpB   = 105, // Exponent 'B' of D-factor correlation (WDFACCOR(3))
+            DFacCorrExpC   = 106, // Exponent 'C' of D-factor correlation (WDFACCOR(4))
 
             LOincFac          = 115,
 

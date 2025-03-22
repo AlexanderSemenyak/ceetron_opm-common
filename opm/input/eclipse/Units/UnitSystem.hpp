@@ -20,13 +20,14 @@
 #ifndef UNITSYSTEM_H
 #define UNITSYSTEM_H
 
-#include <string>
-#include <map>
-#include <vector>
-#include <memory>
-
 #include <opm/input/eclipse/Units/Dimension.hpp>
+
 #include <opm/input/eclipse/Schedule/UDQ/UDQEnums.hpp>
+
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace Opm {
 
@@ -51,6 +52,7 @@ namespace Opm {
             temperature,
             viscosity,
             permeability,
+            area,
             liquid_surface_volume,
             gas_surface_volume,
             volume,
@@ -82,6 +84,10 @@ namespace Opm {
             polymer_density,
             salinity,
             gas_oil_ratio_rate,
+            moles,
+            ppm,
+            ymodule,
+            dfactor,
             _count // New entries must be added *before* this
         };
 
@@ -111,8 +117,8 @@ namespace Opm {
 
         Dimension parse(const std::string& dimension) const;
 
-        double from_si( const std::string& dimension, double );
-        double to_si( const std::string& dimension, double );
+        double from_si( const std::string& dimension, double ) const;
+        double to_si( const std::string& dimension, double ) const;
         double from_si( measure, double ) const;
         double to_si( measure, double ) const;
         void from_si( measure, std::vector<double>& ) const;

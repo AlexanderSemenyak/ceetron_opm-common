@@ -15,34 +15,50 @@
 
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
- */
+*/
 
 #define BOOST_TEST_MODULE ParserTests
 #include <boost/test/unit_test.hpp>
 
+#include <boost/version.hpp>
+
 #include <opm/json/JsonObject.hpp>
-#include <iostream>
 
 #include <opm/common/OpmLog/KeywordLocation.hpp>
-#include <opm/input/eclipse/Utility/Typetools.hpp>
+
 #include <opm/common/utility/OpmInputError.hpp>
+
+#include <opm/input/eclipse/Utility/Typetools.hpp>
 #include <opm/input/eclipse/Units/UnitSystem.hpp>
+
 #include <opm/input/eclipse/Deck/Deck.hpp>
 #include <opm/input/eclipse/Deck/DeckKeyword.hpp>
-#include <opm/input/eclipse/Parser/ParseContext.hpp>
+
 #include <opm/input/eclipse/Parser/ErrorGuard.hpp>
+#include <opm/input/eclipse/Parser/InputErrorAction.hpp>
+#include <opm/input/eclipse/Parser/ParseContext.hpp>
 #include <opm/input/eclipse/Parser/Parser.hpp>
 #include <opm/input/eclipse/Parser/ParserKeyword.hpp>
 #include <opm/input/eclipse/Parser/ParserKeywords/A.hpp>
-#include <opm/input/eclipse/Parser/ParserKeywords/S.hpp>
 #include <opm/input/eclipse/Parser/ParserKeywords/Builtin.hpp>
+#include <opm/input/eclipse/Parser/ParserKeywords/R.hpp>
+#include <opm/input/eclipse/Parser/ParserKeywords/S.hpp>
+#include <opm/input/eclipse/Parser/ParserKeywords/T.hpp>
 #include <opm/input/eclipse/Parser/ParserRecord.hpp>
 
-#include "src/opm/input/eclipse/Parser/raw/RawKeyword.hpp"
-#include "src/opm/input/eclipse/Parser/raw/RawRecord.hpp"
+#include "../../opm/input/eclipse/Parser/raw/RawKeyword.hpp"
+#include "../../opm/input/eclipse/Parser/raw/RawRecord.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 using namespace Opm;
 
@@ -54,7 +70,11 @@ constexpr ParserItem::itype DOUBLE = ParserItem::itype::DOUBLE;
 
 
 std::string prefix() {
+#if BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 < 71
+    return boost::unit_test::framework::master_test_suite().argv[2];
+#else
     return boost::unit_test::framework::master_test_suite().argv[1];
+#endif
 }
 
 ParserKeyword createDynamicSized(const std::string& kw) {
@@ -76,6 +96,8 @@ ParserKeyword createTable(const std::string& name,
 }
 
 }
+
+BOOST_AUTO_TEST_SUITE(General_Facilities)
 
 /************************Basic structural tests**********************'*/
 
@@ -320,7 +342,7 @@ BOOST_AUTO_TEST_CASE( PATHS_has_global_scope ) {
     ParseContext parseContext;
     ErrorGuard errors;
 
-    parseContext.update( ParseContext::PARSE_MISSING_INCLUDE , Opm::InputError::THROW_EXCEPTION);
+    parseContext.update( ParseContext::PARSE_MISSING_INCLUDE , Opm::InputErrorAction::THROW_EXCEPTION);
     const auto deck = parser.parseFile( prefix() + "parser/PATHSInInclude.data", parseContext, errors );
     BOOST_CHECK(deck.hasKeyword("OIL"));
     BOOST_CHECK_THROW( parser.parseFile( prefix() + "parser/PATHSInIncludeInvalid.data", parseContext, errors ), OpmInputError );
@@ -331,7 +353,7 @@ BOOST_AUTO_TEST_CASE( PATHS_with_backslashes ) {
     ParseContext parseContext;
     ErrorGuard errors;
 
-    parseContext.update( ParseContext::PARSE_MISSING_INCLUDE , Opm::InputError::THROW_EXCEPTION);
+    parseContext.update( ParseContext::PARSE_MISSING_INCLUDE , Opm::InputErrorAction::THROW_EXCEPTION);
     const auto deck = parser.parseFile( prefix() + "parser/PATHSWithBackslashes.data", parseContext, errors );
     BOOST_CHECK(deck.hasKeyword("OIL"));
 }
@@ -2307,23 +2329,18 @@ GCUTBACK
 G1 0.6 3* 0.9 LIQ /
 G2 1* 3.0 2* 0.9 RESV /
 /
-UDT
-LANGMUIR 4 /
-LC 2 /
-This keyword will not be finished
 )"};
 
-Parser parser;
-auto deck = parser.parseString(deck_string);
-BOOST_CHECK( deck.hasKeyword("GCUTBACK") );
-auto kw = deck["GCUTBACK"].back();
-BOOST_CHECK_EQUAL( kw.size(), 2 );
-auto record = kw.getRecord(1);
-BOOST_CHECK_EQUAL( record.getItem(5).get<double>(0), 0.9 );
-BOOST_CHECK( !deck.hasKeyword("LANGMUIR") );
- const auto& tracerkm = deck.get<ParserKeywords::TRACERKM>().back();
-BOOST_CHECK_EQUAL(tracerkm.size(), 5);
- BOOST_CHECK_EQUAL(deck.count<ParserKeywords::SAVE>(), 2);
+    Parser parser;
+    auto deck = parser.parseString(deck_string);
+    BOOST_CHECK( deck.hasKeyword("GCUTBACK") );
+    auto kw = deck["GCUTBACK"].back();
+    BOOST_CHECK_EQUAL( kw.size(), 2 );
+    auto record = kw.getRecord(1);
+    BOOST_CHECK_EQUAL( record.getItem(5).get<double>(0), 0.9 );
+    const auto& tracerkm = deck.get<ParserKeywords::TRACERKM>().back();
+    BOOST_CHECK_EQUAL(tracerkm.size(), 5);
+    BOOST_CHECK_EQUAL(deck.count<ParserKeywords::SAVE>(), 2);
 }
 
 
@@ -2338,12 +2355,36 @@ GUIDERATE
 /
 )";
 
-   parseContext.update(ParseContext::PARSE_LONG_KEYWORD, Opm::InputError::THROW_EXCEPTION);
+   const auto stressequilnum_string = std::string { R"(RUNSPEC
+DIMENS
+1 5 2 /
+REGIONS
+STRESSEQUILNUM
+1 1 1 1 1
+2 2 2 2 2 /
+END
+)" };
+
+   parseContext.update(ParseContext::PARSE_LONG_KEYWORD, Opm::InputErrorAction::THROW_EXCEPTION);
    BOOST_CHECK_THROW(parser.parseString(deck_string, parseContext, errors), OpmInputError);
 
-   parseContext.update(ParseContext::PARSE_LONG_KEYWORD, Opm::InputError::IGNORE);
-   auto deck = parser.parseString(deck_string, parseContext, errors);
-   BOOST_CHECK( deck.hasKeyword("GUIDERAT") );
+   errors.clear();
+
+   {
+       parseContext.update(ParseContext::PARSE_LONG_KEYWORD, Opm::InputErrorAction::IGNORE);
+       auto deck = parser.parseString(deck_string, parseContext, errors);
+       BOOST_CHECK( deck.hasKeyword("GUIDERAT") );
+   }
+
+   errors.clear();
+
+   {
+       parseContext.update(ParseContext::PARSE_LONG_KEYWORD, Opm::InputErrorAction::THROW_EXCEPTION);
+       const auto deck = parser.parseString(stressequilnum_string, parseContext, errors);
+
+       BOOST_CHECK_MESSAGE(deck.hasKeyword("STRESSEQUILNUM"),
+                           R"(Long keyword "STRESSEQUILNUM" must be present in input deck)");
+   }
 }
 
 BOOST_AUTO_TEST_CASE(DynamicParser1) {
@@ -2355,7 +2396,7 @@ GUIDERAT
 )";
 
     BOOST_CHECK_EQUAL( parser.size(), 0 );
-    parser.addParserKeyword( builtin.GUIDERAT );
+    parser.addParserKeyword( builtin.get_GUIDERAT() );
     BOOST_CHECK_EQUAL( parser.size(), 1 );
     auto deck = parser.parseString(deck_string);
     BOOST_CHECK( deck.hasKeyword("GUIDERAT") );
@@ -2384,9 +2425,9 @@ BOOST_AUTO_TEST_CASE(parseSections) {
 
     Opm::ParseContext parseContext;
 
-    parseContext.update(Opm::ParseContext::PARSE_EXTRA_DATA , Opm::InputError::IGNORE );
-    parseContext.update(Opm::ParseContext::PARSE_EXTRA_RECORDS , Opm::InputError::IGNORE );
-    parseContext.update(Opm::ParseContext::PARSE_RANDOM_SLASH , Opm::InputError::IGNORE );
+    parseContext.update(Opm::ParseContext::PARSE_EXTRA_DATA , Opm::InputErrorAction::IGNORE );
+    parseContext.update(Opm::ParseContext::PARSE_EXTRA_RECORDS , Opm::InputErrorAction::IGNORE );
+    parseContext.update(Opm::ParseContext::PARSE_RANDOM_SLASH , Opm::InputErrorAction::IGNORE );
 
     const auto deck_all = parser.parseFile("./tests/SPE1CASE1.DATA", parseContext);
 
@@ -2410,14 +2451,14 @@ BOOST_AUTO_TEST_CASE(parseSections) {
 
     const auto deck_test1 = parser.parseFile("./tests/SPE1CASE1.DATA", parseContext, test1);
 
-    BOOST_CHECK_EQUAL( deck_grid.size(), 25 );
-    BOOST_CHECK_EQUAL( deck_props.size(), 21 );
-    BOOST_CHECK_EQUAL( deck_regions.size(), 15 );
-    BOOST_CHECK_EQUAL( deck_solution.size(), 16 );
-    BOOST_CHECK_EQUAL( deck_summary.size(), 37 );
-    BOOST_CHECK_EQUAL( deck_schecule.size(), 30 );
+    BOOST_CHECK_EQUAL( deck_grid.size(), 12 );
+    BOOST_CHECK_EQUAL( deck_props.size(), 8 );
+    BOOST_CHECK_EQUAL( deck_regions.size(), 2 );
+    BOOST_CHECK_EQUAL( deck_solution.size(), 3 );
+    BOOST_CHECK_EQUAL( deck_summary.size(), 24 );
+    BOOST_CHECK_EQUAL( deck_schecule.size(), 17 );
 
-    BOOST_CHECK_EQUAL( deck_test1.size(), 24 );
+    BOOST_CHECK_EQUAL( deck_test1.size(), 11 );
 
     const auto deck1b_all = parser.parseFile("./tests/SPE1CASE1B.DATA", parseContext);
 
@@ -2509,3 +2550,442 @@ BOOST_AUTO_TEST_CASE(ParserKeywordSize) {
         BOOST_CHECK(!min_size.has_value());
     }
 }
+
+BOOST_AUTO_TEST_SUITE_END() // General_Facilities
+
+// ===========================================================================
+
+BOOST_AUTO_TEST_SUITE(Parse_ROCK)
+
+BOOST_AUTO_TEST_CASE(Defaulted)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+/ -- NTPVT = 1
+PROPS
+ROCK
+123.4 0.40E-05 /
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+
+    const auto& rec = rock[0].getRecord(0);
+    BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                      123.4*1.0e5, 1.0e-8);
+    BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                      0.4e-5/1.0e5, 1.0e-8);
+}
+
+BOOST_AUTO_TEST_CASE(Defaulted_NTPVT2)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+ 1* 2 / -- NTPVT = 2
+PROPS
+ROCK
+123.4 0.40E-05 /
+/
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{2});
+
+    const auto& rec = rock[0].getRecord(0);
+    BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                      123.4*1.0e5, 1.0e-8);
+    BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                      0.4e-5/1.0e5, 1.0e-8);
+
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::PREF>().defaultApplied(0),
+                        "Reference Pressure must be defaulted in ROCK Record 2");
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().defaultApplied(0),
+                        "Rock Compressibility must be defaulted in ROCK Record 2");
+}
+
+BOOST_AUTO_TEST_CASE(Defaulted_NTPVT3)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+ 1* 3 / -- NTPVT = 3
+PROPS
+ROCK
+123.4 0.40E-05 /
+/
+271.8 1.61e-05 /
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{3});
+
+    {
+        const auto& rec = rock[0].getRecord(0);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          123.4*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          0.4e-5/1.0e5, 1.0e-8);
+    }
+
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::PREF>().defaultApplied(0),
+                        "Reference Pressure must be defaulted in ROCK Record 2");
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().defaultApplied(0),
+                        "Rock Compressibility must be defaulted in ROCK Record 2");
+
+    {
+        const auto& rec = rock[0].getRecord(2);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          271.8*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          1.61e-5/1.0e5, 1.0e-8);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTSFUN_Dflt)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+/ -- NTSFUN = 1
+PROPS
+ROCKOPTS
+ 1* 1* SATNUM /
+ROCK
+123.4 0.40E-05 /
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{1});
+
+    {
+        const auto& rec = rock[0].getRecord(0);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          123.4*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          0.4e-5/1.0e5, 1.0e-8);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTSFUN_2)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+ 2 / -- NTSFUN = 2
+PROPS
+ROCKOPTS
+ 1* 1* SATNUM /
+ROCK
+123.4 0.40E-05 /
+/
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{2});
+
+    const auto& rec = rock[0].getRecord(0);
+    BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                      123.4*1.0e5, 1.0e-8);
+    BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                      0.4e-5/1.0e5, 1.0e-8);
+
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::PREF>().defaultApplied(0),
+                        "Reference Pressure must be defaulted in ROCK Record 2");
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().defaultApplied(0),
+                        "Rock Compressibility must be defaulted in ROCK Record 2");
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTSFUN_3)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+ 3 / -- NTSFUN = 3
+PROPS
+ROCKOPTS
+ 1* 1* SATNUM /
+ROCK
+123.4 0.40E-05 /
+/
+271.8 1.61e-05 /
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{3});
+
+    {
+        const auto& rec = rock[0].getRecord(0);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          123.4*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          0.4e-5/1.0e5, 1.0e-8);
+    }
+
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::PREF>().defaultApplied(0),
+                        "Reference Pressure must be defaulted in ROCK Record 2");
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().defaultApplied(0),
+                        "Rock Compressibility must be defaulted in ROCK Record 2");
+
+    {
+        const auto& rec = rock[0].getRecord(2);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          271.8*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          1.61e-5/1.0e5, 1.0e-8);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTROCC_1)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+12* 1 / -- NTROCC = 1
+PROPS
+ROCKOPTS
+ 1* 1* ROCKNUM /
+ROCK
+123.4 0.40E-05 /
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{1});
+
+    {
+        const auto& rec = rock[0].getRecord(0);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          123.4*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          0.4e-5/1.0e5, 1.0e-8);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTROCC_2)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+12* 2 / -- NTROCC = 2
+PROPS
+ROCKOPTS
+ 1* 1* ROCKNUM /
+ROCK
+123.4 0.40E-05 /
+/
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{2});
+
+    const auto& rec = rock[0].getRecord(0);
+    BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                      123.4*1.0e5, 1.0e-8);
+    BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                      0.4e-5/1.0e5, 1.0e-8);
+
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::PREF>().defaultApplied(0),
+                        "Reference Pressure must be defaulted in ROCK Record 2");
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().defaultApplied(0),
+                        "Rock Compressibility must be defaulted in ROCK Record 2");
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTROCC_3)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+12* 3 / -- NTROCC = 3
+PROPS
+ROCKOPTS
+ 1* 1* ROCKNUM /
+ROCK
+123.4 0.40E-05 /
+/
+271.8 1.61e-05 /
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{3});
+
+    {
+        const auto& rec = rock[0].getRecord(0);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          123.4*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          0.4e-5/1.0e5, 1.0e-8);
+    }
+
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::PREF>().defaultApplied(0),
+                        "Reference Pressure must be defaulted in ROCK Record 2");
+    BOOST_CHECK_MESSAGE(rock[0].getRecord(1).getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().defaultApplied(0),
+                        "Rock Compressibility must be defaulted in ROCK Record 2");
+
+    {
+        const auto& rec = rock[0].getRecord(2);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          271.8*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          1.61e-5/1.0e5, 1.0e-8);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTROCC_Dflt)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+12* 1* / -- NTROCC defaulted => NTPVT (= 1)
+PROPS
+ROCKOPTS
+ 1* 1* ROCKNUM /
+ROCK
+123.4 0.40E-05 /
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{1});
+
+    {
+        const auto& rec = rock[0].getRecord(0);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          123.4*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          0.4e-5/1.0e5, 1.0e-8);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTROCC_Dflt_TooFewRecords)
+{
+    BOOST_CHECK_THROW(const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+1* 2 10* 1* / -- NTROCC defaulted => NTPVT (= 2)
+PROPS
+ROCKOPTS
+ 1* 1* ROCKNUM /
+ROCK
+123.4 0.40E-05 /
+END
+)"), OpmInputError);               // "Keyword is not properly terminated"
+}
+
+BOOST_AUTO_TEST_CASE(Opts_NTROCC_Dflt_TooManyRecords)
+{
+    BOOST_CHECK_THROW(const auto deck = Parser{}.parseString(R"(RUNSPEC
+TABDIMS
+1* 2 10* 1* / -- NTROCC defaulted => NTPVT (= 2)
+PROPS
+ROCKOPTS
+ 1* 1* ROCKNUM /
+ROCK
+123.4 0.40E-05 /
+/
+271.8 1.61e-05 /
+END
+)"), OpmInputError);            // "String 271.8 1.61e-05 / not formatted as valid keyword"
+}
+
+BOOST_AUTO_TEST_CASE(No_Tabdims_Dflt)
+{
+    const auto deck = Parser{}.parseString(R"(RUNSPEC
+PROPS
+ROCKOPTS
+ 1* 1* SATNUM /
+ROCK
+123.4 0.40E-05 /
+END
+)");
+
+    BOOST_REQUIRE_MESSAGE(deck.hasKeyword("ROCK"),
+                          "Must be able to parse single-record ROCK keyword");
+
+    const auto& rock = deck.get<ParserKeywords::ROCK>();
+
+    BOOST_REQUIRE_EQUAL(rock.size(), std::size_t{1});
+    BOOST_REQUIRE_EQUAL(rock[0].size(), std::size_t{1});
+
+    {
+        const auto& rec = rock[0].getRecord(0);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::PREF>().getSIDouble(0),
+                          123.4*1.0e5, 1.0e-8);
+        BOOST_CHECK_CLOSE(rec.getItem<ParserKeywords::ROCK::COMPRESSIBILITY>().getSIDouble(0),
+                          0.4e-5/1.0e5, 1.0e-8);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(No_Tabdims_TooFewRecords)
+{
+    BOOST_CHECK_THROW(const auto deck = Parser{}.parseString(R"(RUNSPEC
+PROPS
+ROCKOPTS
+ 1* 1* ROCKNUM /
+ROCK
+END
+)"), OpmInputError);               // "Keyword is not properly terminated"
+}
+
+BOOST_AUTO_TEST_CASE(No_Tabdims_TooManyRecords)
+{
+    BOOST_CHECK_THROW(const auto deck = Parser{}.parseString(R"(RUNSPEC
+PROPS
+ROCKOPTS
+ 1* 1* ROCKNUM /
+ROCK
+123.4 0.40E-05 /
+/
+271.8 1.61e-05 /
+END
+)"), OpmInputError);            // "String 271.8 1.61e-05 / not formatted as valid keyword"
+}
+
+BOOST_AUTO_TEST_SUITE_END() // Parse_ROCK

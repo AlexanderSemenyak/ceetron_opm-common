@@ -25,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <functional>
 
 #include <opm/input/eclipse/Schedule/Network/Branch.hpp>
 #include <opm/input/eclipse/Schedule/Network/Node.hpp>
@@ -37,17 +38,21 @@ class ExtNetwork {
 public:
     ExtNetwork() = default;
     bool active() const;
-    bool has_node(const std::string& name) const;
-    void add_node(Node node);
+    bool is_standard_network() const;
+    void set_standard_network(bool is_standard_network);
     void add_branch(Branch branch);
+    void add_or_replace_branch(Branch branch);
     void drop_branch(const std::string& uptree_node, const std::string& downtree_node);
+    bool has_node(const std::string& name) const;
+    void update_node(Node node);
     const Node& node(const std::string& name) const;
-    const Node& root() const;
+    std::vector<std::reference_wrapper<const Node>> roots() const;
     std::vector<Branch> downtree_branches(const std::string& node) const;
     std::vector<const Branch*> branches() const;
     std::optional<Branch> uptree_branch(const std::string& node) const;
     std::vector<std::string> node_names() const;
     int NoOfBranches() const;
+    int NoOfNodes() const;
 
     bool operator==(const ExtNetwork& other) const;
     static ExtNetwork serializationTestObject();
@@ -58,13 +63,15 @@ public:
         serializer(m_branches);
         serializer(insert_indexed_node_names);
         serializer(m_nodes);
+        serializer(m_is_standard_network);
     }
 
 private:
     std::vector<Branch> m_branches;
     std::vector<std::string> insert_indexed_node_names;
     std::map<std::string, Node> m_nodes;
-    bool has_indexed_node_name(const std::string name) const;
+    bool m_is_standard_network{false};
+    bool has_indexed_node_name(const std::string& name) const;
     void add_indexed_node_name(std::string name);
 };
 

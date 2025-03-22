@@ -30,6 +30,7 @@
 #include <opm/output/data/Wells.hpp>
 #include <opm/output/eclipse/EclipseIO.hpp>
 #include <opm/output/eclipse/InteHEAD.hpp>
+#include <opm/output/eclipse/RestartValue.hpp>
 #include <opm/output/eclipse/WriteRFT.hpp>
 
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
@@ -41,6 +42,7 @@
 #include <opm/input/eclipse/Schedule/Schedule.hpp>
 #include <opm/input/eclipse/Schedule/SummaryState.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQState.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
 #include <opm/input/eclipse/Schedule/Well/WellTestState.hpp>
 
 #include <opm/input/eclipse/Units/Units.hpp>
@@ -713,7 +715,7 @@ BOOST_AUTO_TEST_CASE(test_RFT)
         const auto start_time = schedule.posixStartTime();
         const auto step_time  = timeStamp(::Opm::EclIO::ERft::RftDate{ 2008, 10, 10 });
 
-        Opm::SummaryState st(Opm::TimeService::now());
+        Opm::SummaryState st(Opm::TimeService::now(), 0.0);
         Opm::Action::State action_state;
         Opm::UDQState udq_state(1234);
         Opm::WellTestState wtest_state;
@@ -728,13 +730,14 @@ BOOST_AUTO_TEST_CASE(test_RFT)
         r2.set( Opm::data::Rates::opt::gas, 4.23 );
 
         std::vector<Opm::data::Connection> well1_comps(9);
+        Opm::data::ConnectionFiltrate con_filtrate {0.1, 1, 3, 0.4, 1.e-9, 0.2, 0.05, 10.}; // values are not used in this test
         for (size_t i = 0; i < 9; ++i) {
-            Opm::data::Connection well_comp { grid.getGlobalIndex(8,8,i) ,r1, 0.0 , 0.0, (double)i, 0.1*i,0.2*i, 1.2e3, 4.321};
+            Opm::data::Connection well_comp { grid.getGlobalIndex(8,8,i), r1, 0.0 , 0.0, (double)i, 0.1*i,0.2*i, 1.2e3, 4.321, 0.0, 1.23, con_filtrate};
             well1_comps[i] = std::move(well_comp);
         }
         std::vector<Opm::data::Connection> well2_comps(6);
         for (size_t i = 0; i < 6; ++i) {
-            Opm::data::Connection well_comp { grid.getGlobalIndex(3,3,i+3) ,r2, 0.0 , 0.0, (double)i, i*0.1,i*0.2, 0.15, 0.54321};
+            Opm::data::Connection well_comp { grid.getGlobalIndex(3,3,i+3), r2, 0.0 , 0.0, (double)i, i*0.1,i*0.2, 0.15, 0.54321, 0.0, 0.98, con_filtrate};
             well2_comps[i] = std::move(well_comp);
         }
 
@@ -745,13 +748,14 @@ BOOST_AUTO_TEST_CASE(test_RFT)
         using SegRes = decltype(wells["w"].segments);
         using Ctrl = decltype(wells["w"].current_control);
 
+        Opm::data::WellFiltrate well_filtrate {0.1, 500., 0.3}; // values are not used in this test
         wells["OP_1"] = {
-            std::move(r1), 1.0, 1.1, 3.1, 1,
+            std::move(r1), 1.0, 1.1, 3.1, 1, 1.0, well_filtrate,
             ::Opm::Well::Status::OPEN,
-            std::move(well1_comps), SegRes{}, Ctrl{}
+            std::move(well1_comps), SegRes{}, Ctrl{},
         };
         wells["OP_2"] = {
-            std::move(r2), 1.0, 1.1, 3.2, 1,
+            std::move(r2), 1.0, 1.1, 3.2, 1, 1.0, well_filtrate,
             ::Opm::Well::Status::OPEN,
             std::move(well2_comps), SegRes{}, Ctrl{}
         };
@@ -844,7 +848,7 @@ BOOST_AUTO_TEST_CASE(test_RFT2)
 
         Opm::Schedule schedule(deck, eclipseState, python);
         Opm::SummaryConfig summary_config( deck, schedule, eclipseState.fieldProps(), eclipseState.aquifer() );
-        Opm::SummaryState st(Opm::TimeService::now());
+        Opm::SummaryState st(Opm::TimeService::now(), 0.0);
         Opm::Action::State action_state;
         Opm::UDQState udq_state(10);
         Opm::WellTestState wtest_state;
@@ -865,13 +869,14 @@ BOOST_AUTO_TEST_CASE(test_RFT2)
                 r2.set( Opm::data::Rates::opt::gas, 4.23 );
 
                 std::vector<Opm::data::Connection> well1_comps(9);
+                Opm::data::ConnectionFiltrate con_filtrate {0.1, 1, 3, 0.4, 1.e-9, 0.2, 0.05, 10.}; // values are not used in this test
                 for (size_t i = 0; i < 9; ++i) {
-                    Opm::data::Connection well_comp { grid.getGlobalIndex(8,8,i) ,r1, 0.0 , 0.0, (double)i, 0.1*i,0.2*i, 3.14e5, 0.1234};
+                    Opm::data::Connection well_comp { grid.getGlobalIndex(8,8,i), r1, 0.0 , 0.0, (double)i, 0.1*i,0.2*i, 3.14e5, 0.1234, 0.0, 1.23, con_filtrate};
                     well1_comps[i] = std::move(well_comp);
                 }
                 std::vector<Opm::data::Connection> well2_comps(6);
                 for (size_t i = 0; i < 6; ++i) {
-                    Opm::data::Connection well_comp { grid.getGlobalIndex(3,3,i+3) ,r2, 0.0 , 0.0, (double)i, i*0.1,i*0.2, 355.113, 0.9876};
+                    Opm::data::Connection well_comp { grid.getGlobalIndex(3,3,i+3), r2, 0.0 , 0.0, (double)i, i*0.1,i*0.2, 355.113, 0.9876, 0.0, 0.98, con_filtrate};
                     well2_comps[i] = std::move(well_comp);
                 }
 
@@ -881,13 +886,14 @@ BOOST_AUTO_TEST_CASE(test_RFT2)
                 using SegRes = decltype(wells["w"].segments);
                 using Ctrl = decltype(wells["w"].current_control);
 
+                Opm::data::WellFiltrate well_filtrate {0.1, 500., 0.3}; // values are not used in this test
                 wells["OP_1"] = {
-                    std::move(r1), 1.0, 1.1, 3.1, 1,
+                    std::move(r1), 1.0, 1.1, 3.1, 1, 1.0, well_filtrate,
                     ::Opm::Well::Status::OPEN,
                     std::move(well1_comps), SegRes{}, Ctrl{}
                 };
                 wells["OP_2"] = {
-                    std::move(r2), 1.0, 1.1, 3.2, 1,
+                    std::move(r2), 1.0, 1.1, 3.2, 1, 1.0, well_filtrate,
                     ::Opm::Well::Status::OPEN,
                     std::move(well2_comps), SegRes{}, Ctrl{}
                 };

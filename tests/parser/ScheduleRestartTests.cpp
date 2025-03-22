@@ -21,35 +21,47 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <opm/io/eclipse/rst/state.hpp>
+#include <opm/io/eclipse/ERst.hpp>
+#include <opm/io/eclipse/RestartFileView.hpp>
+
 #include <opm/common/utility/TimeService.hpp>
-#include <opm/input/eclipse/Units/UnitSystem.hpp>
-#include <opm/input/eclipse/Python/Python.hpp>
+
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
-#include <opm/input/eclipse/EclipseState/Grid/FieldPropsManager.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/EclipseGrid.hpp>
-#include <opm/input/eclipse/Schedule/Schedule.hpp>
-#include <opm/input/eclipse/Schedule/OilVaporizationProperties.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellConnections.hpp>
-#include <opm/input/eclipse/Schedule/Well/Well.hpp>
-#include <opm/input/eclipse/Schedule/SummaryState.hpp>
-#include <opm/input/eclipse/Units/UnitSystem.hpp>
-#include <opm/input/eclipse/Schedule/UDQ/UDQState.hpp>
+#include <opm/input/eclipse/EclipseState/Grid/FieldPropsManager.hpp>
+
+#include <opm/input/eclipse/Python/Python.hpp>
+
+#include <opm/input/eclipse/Schedule/Action/Actions.hpp>
 #include <opm/input/eclipse/Schedule/Action/State.hpp>
+#include <opm/input/eclipse/Schedule/OilVaporizationProperties.hpp>
+#include <opm/input/eclipse/Schedule/Schedule.hpp>
+#include <opm/input/eclipse/Schedule/Schedule.hpp>
+#include <opm/input/eclipse/Schedule/SummaryState.hpp>
+#include <opm/input/eclipse/Schedule/UDQ/UDQState.hpp>
+#include <opm/input/eclipse/Schedule/Well/WListManager.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellConnections.hpp>
+
+#include <opm/input/eclipse/Units/UnitSystem.hpp>
+
 #include <opm/input/eclipse/Parser/ParserKeywords/D.hpp>
 
 #include <opm/input/eclipse/Deck/DeckValue.hpp>
 #include <opm/input/eclipse/Deck/Deck.hpp>
 #include <opm/input/eclipse/Deck/FileDeck.hpp>
-#include <opm/input/eclipse/Parser/Parser.hpp>
-#include <opm/input/eclipse/Schedule/Schedule.hpp>
-#include <opm/io/eclipse/rst/state.hpp>
-#include <opm/io/eclipse/ERst.hpp>
-#include <opm/io/eclipse/RestartFileView.hpp>
 
+#include <opm/input/eclipse/Parser/Parser.hpp>
+
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <iterator>
 #include <memory>
+#include <stdexcept>
+#include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -57,7 +69,11 @@ namespace fs = std::filesystem;
 
 using namespace Opm;
 
-void compare_connections(const RestartIO::RstConnection& rst_conn, const Connection& sched_conn) {
+namespace {
+
+void compare_connections(const RestartIO::RstConnection& rst_conn,
+                         const Connection& sched_conn)
+{
     BOOST_CHECK_EQUAL(rst_conn.ijk[0], sched_conn.getI());
     BOOST_CHECK_EQUAL(rst_conn.ijk[1], sched_conn.getJ());
     BOOST_CHECK_EQUAL(rst_conn.ijk[2], sched_conn.getK());
@@ -69,9 +85,9 @@ void compare_connections(const RestartIO::RstConnection& rst_conn, const Connect
     BOOST_CHECK_CLOSE( rst_conn.cf, sched_conn.CF() , 1e-6);
 }
 
-
-
-void compare_wells(const RestartIO::RstWell& rst_well, const Well& sched_well) {
+void compare_wells(const RestartIO::RstWell& rst_well,
+                   const Well& sched_well)
+{
     BOOST_CHECK_EQUAL(rst_well.name, sched_well.name());
     BOOST_CHECK_EQUAL(rst_well.group, sched_well.groupName());
 
@@ -85,6 +101,7 @@ void compare_wells(const RestartIO::RstWell& rst_well, const Well& sched_well) {
     }
 }
 
+} // Anonymous namespace
 
 BOOST_AUTO_TEST_CASE(LoadRST) {
     Parser parser;
@@ -106,11 +123,14 @@ BOOST_AUTO_TEST_CASE(LoadRST) {
     }
 }
 
+namespace {
 
-std::tuple<Schedule, Schedule, RestartIO::RstState> load_schedule_pair(const std::string& base_deck,
-                                                                       const std::string& rst_deck,
-                                                                       const std::string& rst_fname,
-                                                                       std::size_t restart_step) {
+std::tuple<Schedule, Schedule, RestartIO::RstState>
+load_schedule_pair(const std::string& base_deck,
+                   const std::string& rst_deck,
+                   const std::string& rst_fname,
+                   const std::size_t  restart_step)
+{
     Parser parser;
     auto python = std::make_shared<Python>();
     auto deck = parser.parseFile(base_deck);
@@ -122,7 +142,7 @@ std::tuple<Schedule, Schedule, RestartIO::RstState> load_schedule_pair(const std
     auto rst_view = std::make_shared<EclIO::RestartFileView>(std::move(rst_file), restart_step);
     auto rst_state = RestartIO::RstState::load(std::move(rst_view), ecl_state.runspec(), parser);
     EclipseState ecl_state_restart(restart_deck);
-    Schedule restart_sched(restart_deck, ecl_state_restart, python, {}, &rst_state);
+    Schedule restart_sched(restart_deck, ecl_state_restart, python, false, /*slave_mode=*/false, true, {}, &rst_state);
 
     return {sched, restart_sched, std::move(rst_state)};
 }
@@ -131,7 +151,7 @@ std::tuple<Schedule, Schedule, RestartIO::RstState> load_schedule_pair(const std
 void compare_sched(const std::string& base_deck,
                    const std::string& rst_deck,
                    const std::string& rst_fname,
-                   std::size_t restart_step)
+                   const std::size_t  restart_step)
 {
     const auto& [sched, restart_sched, _] = load_schedule_pair(base_deck, rst_deck, rst_fname, restart_step);
     (void) _;
@@ -150,18 +170,24 @@ void compare_sched(const std::string& base_deck,
     }
 }
 
+} // Anonymous namespace
 
-
-BOOST_AUTO_TEST_CASE(LoadRestartSim) {
+BOOST_AUTO_TEST_CASE(LoadRestartSim)
+{
     compare_sched("SPE1CASE2.DATA", "SPE1CASE2_RESTART_SKIPREST.DATA", "SPE1CASE2.X0060", 60);
     compare_sched("SPE1CASE2.DATA", "SPE1CASE2_RESTART.DATA", "SPE1CASE2.X0060", 60);
 }
 
+BOOST_AUTO_TEST_CASE(LoadUDQRestartSim)
+{
+    const auto& [sched, restart_sched, rst_state] =
+        load_schedule_pair("UDQ_WCONPROD.DATA",
+                           "UDQ_WCONPROD_RESTART.DATA",
+                           "UDQ_WCONPROD.X0006", 6);
 
-BOOST_AUTO_TEST_CASE(LoadUDQRestartSim) {
-    const auto& [sched, restart_sched, rst_state] = load_schedule_pair("UDQ_WCONPROD.DATA", "UDQ_WCONPROD_RESTART.DATA", "UDQ_WCONPROD.X0006", 6);
     std::size_t report_step = 10;
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), rst_state.header.udq_undefined);
+
     st.update_well_var("OPL02", "WUOPRL", 1);
     st.update_well_var("OPL02", "WULPRL", 11);
     st.update_well_var("OPU02", "WUOPRU", 111);
@@ -188,26 +214,29 @@ BOOST_AUTO_TEST_CASE(LoadUDQRestartSim) {
     udq_state.load_rst(rst_state);
 }
 
-BOOST_AUTO_TEST_CASE(LoadActionRestartSim) {
-    const auto& [sched, restart_sched, rst_state] = load_schedule_pair("UDQ_ACTIONX.DATA", "UDQ_ACTIONX_RESTART.DATA", "UDQ_ACTIONX.X0007", 7);
+BOOST_AUTO_TEST_CASE(LoadActionRestartSim)
+{
+    const auto& [sched, restart_sched, rst_state] =
+        load_schedule_pair("UDQ_ACTIONX.DATA", "UDQ_ACTIONX_RESTART.DATA", "UDQ_ACTIONX.X0007", 7);
+
     const auto& input_actions = sched[7].actions();
     const auto& rst_actions = restart_sched[7].actions();
 
     BOOST_CHECK_EQUAL(input_actions.ecl_size(), rst_actions.ecl_size());
-    for (std::size_t iact = 0; iact < input_actions.ecl_size(); iact++) {
+    for (std::size_t iact = 0; iact < input_actions.ecl_size(); ++iact) {
         const auto& input_action = input_actions[iact];
         const auto& rst_action = rst_actions[iact];
+
+        BOOST_REQUIRE_EQUAL(std::distance(input_action.begin(), input_action.end()),
+                            std::distance(rst_action.begin(), rst_action.end()));
 
         auto input_iter = input_action.begin();
         auto rst_iter = rst_action.begin();
 
-        BOOST_REQUIRE_EQUAL( std::distance(input_action.begin(), input_action.end()),
-                             std::distance(rst_action.begin(), rst_action.end()) );
-
         while (input_iter != input_action.end()) {
-            BOOST_CHECK( *input_iter == *rst_iter );
-            input_iter++;
-            rst_iter++;
+            BOOST_CHECK(*input_iter == *rst_iter);
+            ++input_iter;
+            ++rst_iter;
         }
     }
 
@@ -215,25 +244,33 @@ BOOST_AUTO_TEST_CASE(LoadActionRestartSim) {
     action_state.load_rst(rst_actions, rst_state);
 }
 
-BOOST_AUTO_TEST_CASE(LoadUDQRestartSim0) {
-    const auto& [sched, restart_sched, _] = load_schedule_pair("ACTIONX_M1.DATA", "ACTIONX_M1_RESTART.DATA", "ACTIONX_M1.X0010", 10);
-    (void)_;
-    std::size_t report_step = 12;
+BOOST_AUTO_TEST_CASE(LoadUDQRestartSim0)
+{
+    const auto& [sched, restart_sched, _] =
+        load_schedule_pair("ACTIONX_M1.DATA", "ACTIONX_M1_RESTART.DATA", "ACTIONX_M1.X0010", 10);
+
+    static_cast<void>(_);
+
+    const std::size_t report_step = 12;
 
     const auto& group = sched.getGroup("TEST", report_step);
     const auto& rst_group = restart_sched.getGroup("TEST", report_step);
 
-    // The GCONINJE which connects a UDA with the water injection control
-    // in group TEST is evaluated in an ACTIONX statement, i.e. it has not
-    // been initialized in the normal deck.
-    BOOST_CHECK_NO_THROW( rst_group.injectionProperties(Phase::WATER) );
-    BOOST_CHECK_THROW( group.injectionProperties(Phase::WATER), std::exception );
+    // The GCONINJE which connects a UDA with the water injection control in
+    // group TEST is evaluated in an ACTIONX statement, i.e. it has not been
+    // initialized in the normal deck.
+    BOOST_CHECK_NO_THROW(rst_group.injectionProperties(Phase::WATER));
+    BOOST_CHECK_THROW(group.injectionProperties(Phase::WATER), std::exception);
 }
 
-BOOST_AUTO_TEST_CASE(LoadWLISTRestartSim) {
-    const auto& [sched, restart_sched, _] = load_schedule_pair("ACTIONX_M1.DATA", "ACTIONX_M1_RESTART.DATA", "ACTIONX_M1.X0010", 10);
-    (void)_;
-    std::size_t report_step = 12;
+BOOST_AUTO_TEST_CASE(LoadWLISTRestartSim)
+{
+    const auto& [sched, restart_sched, _] =
+        load_schedule_pair("ACTIONX_M1.DATA", "ACTIONX_M1_RESTART.DATA", "ACTIONX_M1.X0010", 10);
+
+    static_cast<void>(_);
+
+    const std::size_t report_step = 12;
 
     const auto& wlm = sched[report_step].wlist_manager();
     const auto& rst_wlm = restart_sched[report_step].wlist_manager();
@@ -241,28 +278,25 @@ BOOST_AUTO_TEST_CASE(LoadWLISTRestartSim) {
     BOOST_CHECK(wlm == rst_wlm);
 }
 
-
 BOOST_AUTO_TEST_CASE(TestFileDeck)
 {
-    Parser parser;
-    auto python = std::make_shared<Python>();
-    auto deck = parser.parseFile("UDQ_WCONPROD.DATA");
+    const auto deck = Parser{}.parseFile("UDQ_WCONPROD.DATA");
     FileDeck fd(deck);
 
     {
         auto index = fd.start();
         for (const auto& kw : deck) {
             BOOST_CHECK(kw == fd[index]);
-            index++;
+            ++index;
         }
     }
 
     {
         auto index = fd.stop();
-        for (std::size_t deck_index = deck.size(); deck_index > 0; deck_index--)
+        for (std::size_t deck_index = deck.size(); deck_index > 0; --deck_index) {
             BOOST_CHECK(deck[deck_index - 1] == fd[--index]);
+        }
     }
-
 
     const auto& index1 = fd.find("RADIAL");
     BOOST_CHECK( !index1.has_value() );
@@ -306,9 +340,7 @@ BOOST_AUTO_TEST_CASE(TestFileDeck)
 
 BOOST_AUTO_TEST_CASE(RestartTest2)
 {
-    Parser parser;
-    auto python = std::make_shared<Python>();
-    auto deck = parser.parseFile("UDQ_WCONPROD.DATA");
+    const auto deck = Parser{}.parseFile("UDQ_WCONPROD.DATA");
     FileDeck fd(deck);
 
     fd.rst_solution("RESTART", 6);
@@ -328,28 +360,24 @@ BOOST_AUTO_TEST_CASE(RestartTest2)
 
 BOOST_AUTO_TEST_CASE(RestartTest23)
 {
-    Parser parser;
-    auto python = std::make_shared<Python>();
-    auto deck = parser.parseFile("UDQ_WCONPROD.DATA");
+    const auto deck = Parser{}.parseFile("UDQ_WCONPROD.DATA");
     FileDeck fd(deck);
 
     fd.skip(7);
     BOOST_CHECK_EQUAL(fd.count("DATES"), 1);
     BOOST_CHECK(fd.find("SCHEDULE").has_value());
 
-    auto dates_index = fd.find("DATES");
+    const auto dates_index = fd.find("DATES");
     BOOST_CHECK(dates_index.has_value());
-    auto kw = fd[dates_index.value()];
-    auto rec0 = kw[0];
+    const auto kw = fd[dates_index.value()];
+    const auto rec0 = kw[0];
     BOOST_CHECK_EQUAL( rec0.getItem<ParserKeywords::DATES::MONTH>().get<std::string>(0), "APR");
     BOOST_CHECK_EQUAL( kw.size() , 5);
 }
 
 BOOST_AUTO_TEST_CASE(RestartTest24)
 {
-    Parser parser;
-    auto python = std::make_shared<Python>();
-    auto deck = parser.parseFile("UDQ_WCONPROD.DATA");
+    const auto deck = Parser{}.parseFile("UDQ_WCONPROD.DATA");
     FileDeck fd(deck);
 
     fd.skip(4);
@@ -359,9 +387,8 @@ BOOST_AUTO_TEST_CASE(RestartTest24)
 
 BOOST_AUTO_TEST_CASE(RestartTest)
 {
-    Parser parser;
-    auto python = std::make_shared<Python>();
-    auto deck = parser.parseFile("UDQ_WCONPROD.DATA");
+    auto parser = Parser{};
+    const auto deck = parser.parseFile("UDQ_WCONPROD.DATA");
     FileDeck fd(deck);
 
     const auto solution = fd.find("SOLUTION");
@@ -370,15 +397,17 @@ BOOST_AUTO_TEST_CASE(RestartTest)
     auto index = solution.value();
     while (true) {
         const auto& keyword = fd[++index];
-        if (keyword.name() == "EQUIL")
+        if (keyword.name() == "EQUIL") {
             fd.erase(index);
+        }
 
-        if (index == schedule)
+        if (index == schedule) {
             break;
+        }
     }
 
     UnitSystem units;
-    std::vector<DeckValue> values{ DeckValue{"RESTART_BASE"}, DeckValue{100} };
+    const std::vector<DeckValue> values{ DeckValue{"RESTART_BASE"}, DeckValue{100} };
     DeckKeyword restart(parser.getKeyword("RESTART"), std::vector<std::vector<DeckValue>>{ values }, units, units);
 
     index = solution.value();
@@ -406,7 +435,4 @@ BOOST_AUTO_TEST_CASE(RestartTest)
     //         return date == tp;
     //     }
     // };
-
-
-
 }

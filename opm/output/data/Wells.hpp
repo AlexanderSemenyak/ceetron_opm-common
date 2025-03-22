@@ -15,20 +15,20 @@
 
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
- */
+*/
 
 #ifndef OPM_OUTPUT_WELLS_HPP
 #define OPM_OUTPUT_WELLS_HPP
 
 #include <opm/output/data/GuideRateValue.hpp>
-#include <opm/input/eclipse/Schedule/Well/Well.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellEnums.hpp>
 
 #include <opm/json/JsonObject.hpp>
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <cstddef>
-#include <initializer_list>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -36,9 +36,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace Opm {
-
-    namespace data {
+namespace Opm { namespace data {
 
     class Rates {
         /* Methods are defined inline for performance, as the actual *work* done
@@ -74,7 +72,8 @@ namespace Opm {
                 alq              = (1 << 18),
                 tracer           = (1 << 19),
                 micp             = (1 << 20),
-                vaporized_water     = (1 << 21)
+                vaporized_water  = (1 << 21),
+                mass_gas         = (1 << 22)
             };
 
             using enum_size = std::underlying_type< opt >::type;
@@ -133,6 +132,7 @@ namespace Opm {
                 serializer(tracer);
                 serializer(micp);
                 serializer(vaporized_water);
+                serializer(mass_gas);
             }
 
             static Rates serializationTestObject()
@@ -159,6 +159,7 @@ namespace Opm {
                 rat1.set(opt::alq, 19.0);
                 rat1.set(opt::micp, 21.0);
                 rat1.set(opt::vaporized_water, 22.0);
+                rat1.set(opt::mass_gas, 23.0);
                 rat1.tracer.insert({"test_tracer", 1.0});
 
                 return rat1;
@@ -191,36 +192,94 @@ namespace Opm {
             double well_potential_gas = 0.0;
             double brine = 0.0;
             double alq = 0.0;
-            std::map<std::string, double> tracer;
+            std::map<std::string, double> tracer{};
             double micp = 0.0;
             double vaporized_water = 0.0;
+            double mass_gas = 0.0;
     };
 
-    struct Connection {
-        using global_index = size_t;
+    struct ConnectionFiltrate
+    {
+        double rate;
+        double total;
+        double skin_factor;
+        double thickness;
+        double perm;
+        double poro;
+        double radius;
+        double area_of_flow;
+
+        template<class Serializer>
+        void serializeOp(Serializer& serializer) {
+            serializer(rate);
+            serializer(total);
+            serializer(skin_factor);
+            serializer(thickness);
+            serializer(perm);
+            serializer(poro);
+            serializer(radius);
+            serializer(area_of_flow);
+        }
+
+        bool operator==(const ConnectionFiltrate& filtrate) const
+        {
+            return this->rate == filtrate.rate &&
+                   this->total == filtrate.total &&
+                   this->skin_factor == filtrate.skin_factor &&
+                   this->thickness == filtrate.thickness &&
+                   this->perm == filtrate.perm &&
+                   this->poro == filtrate.poro &&
+                   this->radius == filtrate.radius &&
+                   this->area_of_flow == filtrate.area_of_flow;
+        }
+
+        static ConnectionFiltrate serializationTestObject()
+        {
+            return {0.8, 100., -1., 2., 1.e-9,
+                    0.3, 0.05, 0.8};
+        }
+
+        template <class MessageBufferType>
+        void write(MessageBufferType& buffer) const;
+
+        template <class MessageBufferType>
+        void read(MessageBufferType& buffer);
+    };
+
+    struct Connection
+    {
+        using global_index = std::size_t;
         static const constexpr int restart_size = 6;
 
-        global_index index;
-        Rates rates;
-        double pressure;
-        double reservoir_rate;
-        double cell_pressure;
-        double cell_saturation_water;
-        double cell_saturation_gas;
-        double effective_Kh;
-        double trans_factor;
+        global_index index{};
+        Rates rates{};
+        double pressure{};
+        double reservoir_rate{};
+        double cell_pressure{};
+        double cell_saturation_water{};
+        double cell_saturation_gas{};
+        double effective_Kh{};
+        double trans_factor{};
+        double d_factor{};
+        double compact_mult{1.0}; // Rock compaction transmissibility multiplier (ROCKTAB)
+
+        ConnectionFiltrate filtrate;
 
         bool operator==(const Connection& conn2) const
         {
-            return index == conn2.index &&
-                   rates == conn2.rates &&
-                   pressure == conn2.pressure &&
-                   reservoir_rate == conn2.reservoir_rate &&
-                   cell_pressure == conn2.cell_pressure &&
-                   cell_saturation_water == conn2.cell_saturation_water &&
-                   cell_saturation_gas == conn2.cell_saturation_gas &&
-                   effective_Kh == conn2.effective_Kh &&
-                   trans_factor == conn2.trans_factor;
+            return (index == conn2.index)
+                && (rates == conn2.rates)
+                && (pressure == conn2.pressure)
+                && (reservoir_rate == conn2.reservoir_rate)
+                && (cell_pressure == conn2.cell_pressure)
+                && (cell_saturation_water == conn2.cell_saturation_water)
+                && (cell_saturation_gas == conn2.cell_saturation_gas)
+                && (effective_Kh == conn2.effective_Kh)
+                && (trans_factor == conn2.trans_factor)
+                && (d_factor == conn2.d_factor)
+                && (compact_mult == conn2.compact_mult)
+                && (filtrate == conn2.filtrate)
+                ;
         }
 
         template <class MessageBufferType>
@@ -242,17 +301,24 @@ namespace Opm {
             serializer(cell_saturation_gas);
             serializer(effective_Kh);
             serializer(trans_factor);
+            serializer(d_factor);
+            serializer(compact_mult);
+            serializer(filtrate);
         }
 
         static Connection serializationTestObject()
         {
-            return Connection{1, Rates::serializationTestObject(),
-                              2.0, 3.0, 4.0, 5.0,
-                              6.0, 7.0, 8.0};
+            return Connection {
+                1, Rates::serializationTestObject(),
+                2.0, 3.0, 4.0, 5.0,
+                6.0, 7.0, 8.0, 9.0, 0.987,
+                ConnectionFiltrate::serializationTestObject()
+            };
         }
     };
 
-    class SegmentPressures {
+    class SegmentPressures
+    {
     public:
         enum class Value : std::size_t {
             Pressure, PDrop, PDropHydrostatic, PDropAccel, PDropFriction,
@@ -318,15 +384,11 @@ namespace Opm {
         }
     };
 
-    class SegmentPhaseQuantity
+    template <typename Items>
+    class QuantityCollection
     {
     public:
-        enum class Item : std::size_t {
-            Oil, Gas, Water,
-
-            // -- Must be last enumerator --
-            NumItems,
-        };
+        using Item = typename Items::Item;
 
         void clear()
         {
@@ -341,31 +403,31 @@ namespace Opm {
             return (i < Size) && this->hasItem(i);
         }
 
-        bool operator==(const SegmentPhaseQuantity& vec) const
+        bool operator==(const QuantityCollection& that) const
         {
-            return (this->has_   == vec.has_)
-                && (this->value_ == vec.value_);
+            return (this->has_   == that.has_)
+                && (this->value_ == that.value_);
         }
 
         double get(const Item p) const
         {
             if (! this->has(p)) {
                 throw std::invalid_argument {
-                    "Request for Unset Item Value for " + this->itemName(p)
+                    "Request for Unset Item Value for " + Items::itemName(p)
                 };
             }
 
             return this->value_[ this->index(p) ];
         }
 
-        SegmentPhaseQuantity& set(const Item p, const double value)
+        QuantityCollection& set(const Item p, const double value)
         {
             const auto i = this->index(p);
 
             if (i >= Size) {
                 throw std::invalid_argument {
                     "Cannot Assign Item Value for Unsupported Item '"
-                    + this->itemName(p) + '\''
+                    + Items::itemName(p) + '\''
                 };
             }
 
@@ -403,16 +465,22 @@ namespace Opm {
             serializer(this->value_);
         }
 
-        static SegmentPhaseQuantity serializationTestObject()
+        static QuantityCollection serializationTestObject()
         {
-            return SegmentPhaseQuantity{}
-                .set(Item::Oil  , 1.0)
-                .set(Item::Gas  , 7.0)
-                .set(Item::Water, 2.9);
+            auto quant = QuantityCollection{};
+
+            for (const auto& [item, value] : Items::serializationTestItems()) {
+                quant.set(item, value);
+            }
+
+            return quant;
         }
 
     private:
         enum { Size = static_cast<std::size_t>(Item::NumItems) };
+
+        static_assert(Size <= static_cast<std::size_t>(CHAR_BIT),
+                      "Number of items must not exceed CHAR_BIT");
 
         /// Whether or not item has a defined value.  We use the bottom
         /// 'Size' bits.
@@ -430,8 +498,18 @@ namespace Opm {
         {
             return (this->has_ & (1 << i)) != 0;
         }
+    };
 
-        std::string itemName(const Item p) const
+    struct PhaseItems
+    {
+        enum class Item {
+            Oil, Gas, Water,
+
+            // -- Must be last enumerator --
+            NumItems,
+        };
+
+        static std::string itemName(const Item p)
         {
             switch (p) {
             case Item::Oil:   return "Oil";
@@ -442,9 +520,58 @@ namespace Opm {
                 return "Out of bounds (NumItems)";
             }
 
-            return "Unknown (" + std::to_string(this->index(p)) + ')';
+            return "Unknown (" + std::to_string(static_cast<int>(p)) + ')';
+        }
+
+        static auto serializationTestItems()
+        {
+            return std::vector {
+                std::pair { Item::Oil  , 1.0 },
+                std::pair { Item::Gas  , 7.0 },
+                std::pair { Item::Water, 2.9 },
+            };
         }
     };
+
+    struct DensityItems
+    {
+        enum class Item {
+            Oil, Gas, Water, Mixture, MixtureWithExponents,
+
+            // -- Must be last enumerator --
+            NumItems,
+        };
+
+        static std::string itemName(const Item p)
+        {
+            switch (p) {
+            case Item::Oil:                  return "Oil";
+            case Item::Gas:                  return "Gas";
+            case Item::Water:                return "Water";
+            case Item::Mixture:              return "Mixture";
+            case Item::MixtureWithExponents: return "MixtureWithExponents";
+
+            case Item::NumItems:
+                return "Out of bounds (NumItems)";
+            }
+
+            return "Unknown (" + std::to_string(static_cast<int>(p)) + ')';
+        }
+
+        static auto serializationTestItems()
+        {
+            return std::vector {
+                std::pair { Item::Oil                 , 876.54 },
+                std::pair { Item::Gas                 , 321.09 },
+                std::pair { Item::Water               , 987.65 },
+                std::pair { Item::Mixture             , 975.31 },
+                std::pair { Item::MixtureWithExponents, 765.43 },
+            };
+        }
+    };
+
+    using SegmentPhaseQuantity = QuantityCollection<PhaseItems>;
+    using SegmentPhaseDensity = QuantityCollection<DensityItems>;
 
     struct Segment
     {
@@ -453,6 +580,7 @@ namespace Opm {
         SegmentPhaseQuantity velocity{};
         SegmentPhaseQuantity holdup{};
         SegmentPhaseQuantity viscosity{};
+        SegmentPhaseDensity density{};
         std::size_t segNumber{};
 
         bool operator==(const Segment& seg2) const
@@ -462,6 +590,7 @@ namespace Opm {
                 && (velocity == seg2.velocity)
                 && (holdup == seg2.holdup)
                 && (viscosity == seg2.viscosity)
+                && (density == seg2.density)
                 && (segNumber == seg2.segNumber);
         }
 
@@ -479,6 +608,7 @@ namespace Opm {
             serializer(this->velocity);
             serializer(this->holdup);
             serializer(this->viscosity);
+            serializer(this->density);
             serializer(this->segNumber);
         }
 
@@ -490,20 +620,22 @@ namespace Opm {
                 SegmentPhaseQuantity::serializationTestObject(), // velocity
                 SegmentPhaseQuantity::serializationTestObject(), // holdup
                 SegmentPhaseQuantity::serializationTestObject(), // viscosity
+                SegmentPhaseDensity::serializationTestObject(),  // density
                 10
             };
         }
     };
 
-    struct CurrentControl {
+    struct CurrentControl
+    {
         bool isProducer{true};
 
-        ::Opm::Well::ProducerCMode prod {
-            ::Opm::Well::ProducerCMode::CMODE_UNDEFINED
+        ::Opm::WellProducerCMode prod {
+            ::Opm::WellProducerCMode::CMODE_UNDEFINED
         };
 
-        ::Opm::Well::InjectorCMode inj {
-            ::Opm::Well::InjectorCMode::CMODE_UNDEFINED
+        ::Opm::WellInjectorCMode inj {
+            ::Opm::WellInjectorCMode::CMODE_UNDEFINED
         };
 
         bool operator==(const CurrentControl& rhs) const
@@ -515,15 +647,15 @@ namespace Opm {
 
         void init_json(Json::JsonObject& json_data) const
         {
-            if (this->inj == ::Opm::Well::InjectorCMode::CMODE_UNDEFINED)
+            if (this->inj == ::Opm::WellInjectorCMode::CMODE_UNDEFINED)
                 json_data.add_item("inj", "CMODE_UNDEFINED");
             else
-                json_data.add_item("inj", ::Opm::Well::InjectorCMode2String(this->inj));
+                json_data.add_item("inj", ::Opm::WellInjectorCMode2String(this->inj));
 
-            if (this->prod == ::Opm::Well::ProducerCMode::CMODE_UNDEFINED)
+            if (this->prod == ::Opm::WellProducerCMode::CMODE_UNDEFINED)
                 json_data.add_item("prod", "CMODE_UNDEFINED");
             else
-                json_data.add_item("prod", ::Opm::Well::ProducerCMode2String(this->prod));
+                json_data.add_item("prod", ::Opm::WellProducerCMode2String(this->prod));
         }
 
         template <class MessageBufferType>
@@ -543,70 +675,213 @@ namespace Opm {
         static CurrentControl serializationTestObject()
         {
           return CurrentControl{false,
-                                ::Opm::Well::ProducerCMode::BHP,
-                                ::Opm::Well::InjectorCMode::GRUP
+                                ::Opm::WellProducerCMode::BHP,
+                                ::Opm::WellInjectorCMode::GRUP
                  };
         }
     };
 
-    struct Well {
+    class WellBlockAvgPress
+    {
+    public:
+        enum class Quantity { WBP, WBP4, WBP5, WBP9 };
+
+        double& operator[](const Quantity q)
+        {
+            return this->wbp_[static_cast<std::size_t>(q)];
+        }
+
+        double operator[](const Quantity q) const
+        {
+            return this->wbp_[static_cast<std::size_t>(q)];
+        }
+
+        bool operator==(const WellBlockAvgPress& that) const
+        {
+            return this->wbp_ == that.wbp_;
+        }
+
+        template <class MessageBufferType>
+        void write(MessageBufferType& buffer) const;
+
+        template <class MessageBufferType>
+        void read(MessageBufferType& buffer);
+
+        template <class Serializer>
+        void serializeOp(Serializer& serializer)
+        {
+            serializer(this->wbp_);
+        }
+
+        static WellBlockAvgPress serializationTestObject()
+        {
+            auto wbp = WellBlockAvgPress{};
+
+            wbp[Quantity::WBP]  = 17.29;
+            wbp[Quantity::WBP4] =  2.718;
+            wbp[Quantity::WBP5] =  3.1415;
+            wbp[Quantity::WBP9] =  1.618;
+
+            return wbp;
+        }
+
+    private:
+        static constexpr auto NumQuantities =
+            static_cast<std::size_t>(Quantity::WBP9) + 1;
+
+        std::array<double, NumQuantities> wbp_{};
+    };
+
+    struct WellFiltrate
+    {
+        double rate{0.};
+        double total{0.};
+        double concentration{0.};
+
+        template<class Serializer>
+        void serializeOp(Serializer& serializer) {
+            serializer(rate);
+            serializer(total);
+            serializer(concentration);
+        }
+
+        bool operator==(const WellFiltrate& filtrate) const {
+           return this->rate == filtrate.rate
+              && this->total == filtrate.total
+              && this->concentration == filtrate.concentration;
+        }
+
+        static WellFiltrate serializationTestObject() {
+            WellFiltrate res;
+            res.rate = 1.;
+            res.total = 10.;
+            res.concentration = 0.;
+            return res;
+        }
+
+        template <class MessageBufferType>
+        void write(MessageBufferType& buffer) const;
+
+        template <class MessageBufferType>
+        void read(MessageBufferType& buffer);
+    };
+
+    struct WellControlLimitItems
+    {
+        enum class Item {
+            Bhp, OilRate, WaterRate, GasRate, ResVRate, LiquidRate,
+
+            // -- Must be last enumerator --
+            NumItems,
+        };
+
+        static std::string itemName(const Item p)
+        {
+            switch (p) {
+            case Item::Bhp:        return "Bhp";
+            case Item::OilRate:    return "OilRate";
+            case Item::WaterRate:  return "WaterRate";
+            case Item::GasRate:    return "GasRate";
+            case Item::ResVRate:   return "ResVRate";
+            case Item::LiquidRate: return "LiquidRate";
+
+            case Item::NumItems:
+                return "Out of bounds (NumItems)";
+            }
+
+            return "Unknown (" + std::to_string(static_cast<int>(p)) + ')';
+        }
+
+        static auto serializationTestItems()
+        {
+            return std::vector {
+                std::pair { Item::Bhp       , 321.09 },
+                std::pair { Item::OilRate   , 987.65 },
+                std::pair { Item::WaterRate , 975.31 },
+                std::pair { Item::GasRate   , 765.43 },
+                std::pair { Item::ResVRate  , 876.54 },
+                std::pair { Item::LiquidRate,  54.32 },
+            };
+        }
+    };
+
+    using WellControlLimits = QuantityCollection<WellControlLimitItems>;
+
+    struct Well
+    {
         Rates rates{};
+
         double bhp{0.0};
         double thp{0.0};
         double temperature{0.0};
         int control{0};
+        double efficiency_scaling_factor{1.0};
 
-        ::Opm::Well::Status dynamicStatus { Opm::Well::Status::OPEN };
+        WellFiltrate filtrate;
 
-        std::vector< Connection > connections{};
+        ::Opm::WellStatus dynamicStatus { Opm::WellStatus::OPEN };
+
+        std::vector<Connection> connections{};
         std::unordered_map<std::size_t, Segment> segments{};
         CurrentControl current_control{};
         GuideRateValue guide_rates{};
+        WellControlLimits limits{};
 
         inline bool flowing() const noexcept;
+
         template <class MessageBufferType>
         void write(MessageBufferType& buffer) const;
+
         template <class MessageBufferType>
         void read(MessageBufferType& buffer);
 
         inline void init_json(Json::JsonObject& json_data) const;
 
-        const Connection* find_connection(Connection::global_index connection_grid_index) const {
-            const auto connection = std::find_if( this->connections.begin() ,
-                                                  this->connections.end() ,
-                                                  [=]( const Connection& c ) {
-                                                      return c.index == connection_grid_index; });
+        const Connection*
+        find_connection(const Connection::global_index connection_grid_index) const
+        {
+            auto connection = std::find_if(this->connections.begin(),
+                                           this->connections.end(),
+                                           [connection_grid_index](const Connection& c)
+                                           { return c.index == connection_grid_index; });
 
-            if( connection == this->connections.end() )
+            if (connection == this->connections.end()) {
                 return nullptr;
+            }
 
             return &*connection;
         }
 
-        Connection* find_connection(Connection::global_index connection_grid_index) {
-            auto connection = std::find_if( this->connections.begin() ,
-                                            this->connections.end() ,
-                                            [=]( const Connection& c ) {
-                                                return c.index == connection_grid_index; });
+        Connection*
+        find_connection(const Connection::global_index connection_grid_index)
+        {
+            auto connection = std::find_if(this->connections.begin(),
+                                           this->connections.end(),
+                                           [connection_grid_index](const Connection& c)
+                                           { return c.index == connection_grid_index; });
 
-            if( connection == this->connections.end() )
+            if (connection == this->connections.end()) {
                 return nullptr;
+            }
 
             return &*connection;
         }
 
         bool operator==(const Well& well2) const
         {
-            return rates == well2.rates &&
-                   bhp == well2.bhp &&
-                   thp == well2.thp &&
-                   temperature == well2.temperature &&
-                   control == well2.control &&
-                   dynamicStatus == well2.dynamicStatus &&
-                   connections == well2.connections &&
-                   segments == well2.segments &&
-                   current_control == well2.current_control &&
-                   guide_rates == well2.guide_rates;
+            return (this->rates == well2.rates)
+                && (this->bhp == well2.bhp)
+                && (this->thp == well2.thp)
+                && (this->temperature == well2.temperature)
+                && (this->filtrate == well2.filtrate)
+                && (this->control == well2.control)
+                && (this->dynamicStatus == well2.dynamicStatus)
+                && (this->connections == well2.connections)
+                && (this->segments == well2.segments)
+                && (this->current_control == well2.current_control)
+                && (this->guide_rates == well2.guide_rates)
+                && (this->limits == well2.limits)
+                ;
         }
 
         template<class Serializer>
@@ -617,29 +892,35 @@ namespace Opm {
             serializer(thp);
             serializer(temperature);
             serializer(control);
+            serializer(efficiency_scaling_factor);
+            serializer(filtrate);
             serializer(dynamicStatus);
             serializer(connections);
             serializer(segments);
             serializer(current_control);
             serializer(guide_rates);
+            serializer(limits);
         }
 
         static Well serializationTestObject()
         {
-            return Well{Rates::serializationTestObject(),
-                        1.0,
-                        2.0,
-                        3.0,
-                        4,
-                        ::Opm::Well::Status::SHUT,
-                        {Connection::serializationTestObject()},
-                        {{0, Segment::serializationTestObject()}},
-                        CurrentControl::serializationTestObject(),
-                        GuideRateValue::serializationTestObject()
-                   };
+            return Well {
+                Rates::serializationTestObject(),
+                1.0,
+                2.0,
+                3.0,
+                4,
+                5.0,
+                WellFiltrate::serializationTestObject(),
+                ::Opm::WellStatus::SHUT,
+                {Connection::serializationTestObject()},
+                {{0, Segment::serializationTestObject()}},
+                CurrentControl::serializationTestObject(),
+                GuideRateValue::serializationTestObject(),
+                WellControlLimits::serializationTestObject()
+            };
         }
     };
-
 
     class Wells: public std::map<std::string , Well> {
     public:
@@ -728,6 +1009,34 @@ namespace Opm {
         }
     };
 
+    struct WellBlockAveragePressures
+    {
+        std::unordered_map<std::string, WellBlockAvgPress> values{};
+
+        template <class MessageBufferType>
+        void write(MessageBufferType& buffer) const;
+
+        template <class MessageBufferType>
+        void read(MessageBufferType& buffer);
+
+        bool operator==(const WellBlockAveragePressures& that) const
+        {
+            return this->values == that.values;
+        }
+
+        template <class Serializer>
+        void serializeOp(Serializer& serializer)
+        {
+            serializer(this->values);
+        }
+
+        static WellBlockAveragePressures serializationTestObject()
+        {
+            return {
+                { { "I-45", WellBlockAvgPress::serializationTestObject() } },
+            };
+        }
+    };
 
     /* IMPLEMENTATIONS */
 
@@ -807,7 +1116,8 @@ namespace Opm {
              alq == rate.alq &&
              tracer == rate.tracer &&
              micp == rate.micp &&
-             vaporized_water == rate.vaporized_water;
+             vaporized_water == rate.vaporized_water &&
+             mass_gas == rate.mass_gas;
     }
 
 
@@ -845,6 +1155,7 @@ namespace Opm {
                 break;
             case opt::micp: return this->micp;
             case opt::vaporized_water: return this->vaporized_water;
+            case opt::mass_gas: return this->mass_gas;
         }
 
         throw std::invalid_argument(
@@ -917,6 +1228,7 @@ namespace Opm {
             buffer.write(this->well_potential_gas);
             buffer.write(this->brine);
             buffer.write(this->alq);
+
             //tracer:
             unsigned int size = this->tracer.size();
             buffer.write(size);
@@ -924,8 +1236,22 @@ namespace Opm {
                 buffer.write(name);
                 buffer.write(rate);
             }
+
             buffer.write(this->micp);
             buffer.write(this->vaporized_water);
+            buffer.write(this->mass_gas);
+    }
+
+    template <class MessageBufferType>
+    void ConnectionFiltrate::write(MessageBufferType& buffer) const {
+        buffer.write(this->rate);
+        buffer.write(this->total);
+        buffer.write(this->skin_factor);
+        buffer.write(this->thickness);
+        buffer.write(this->perm);
+        buffer.write(this->poro);
+        buffer.write(this->radius);
+        buffer.write(this->area_of_flow);
     }
 
     template <class MessageBufferType>
@@ -939,6 +1265,9 @@ namespace Opm {
             buffer.write(this->cell_saturation_gas);
             buffer.write(this->effective_Kh);
             buffer.write(this->trans_factor);
+            buffer.write(this->d_factor);
+            buffer.write(this->compact_mult);
+            this->filtrate.write(buffer);
     }
 
     void Connection::init_json(Json::JsonObject& json_data) const {
@@ -953,6 +1282,8 @@ namespace Opm {
         json_data.add_item("sgas", this->cell_saturation_gas);
         json_data.add_item("Kh", this->effective_Kh);
         json_data.add_item("trans_factor", this->trans_factor);
+        json_data.add_item("d_factor", this->d_factor);
+        json_data.add_item("compact_mult", this->compact_mult);
     }
 
     template <class MessageBufferType>
@@ -964,6 +1295,7 @@ namespace Opm {
         this->velocity.write(buffer);
         this->holdup.write(buffer);
         this->viscosity.write(buffer);
+        this->density.write(buffer);
     }
 
     template <class MessageBufferType>
@@ -979,22 +1311,47 @@ namespace Opm {
     }
 
     template <class MessageBufferType>
-    void Well::write(MessageBufferType& buffer) const {
+    void WellBlockAvgPress::write(MessageBufferType& buffer) const
+    {
+        for (const auto& quantity : this->wbp_) {
+            buffer.write(quantity);
+        }
+    }
+
+    template <class MessageBufferType>
+    void WellFiltrate::write(MessageBufferType& buffer) const
+    {
+        buffer.write(this->rate);
+        buffer.write(this->total);
+        buffer.write(this->concentration);
+    }
+
+    template <class MessageBufferType>
+    void Well::write(MessageBufferType& buffer) const
+    {
         this->rates.write(buffer);
+
         buffer.write(this->bhp);
         buffer.write(this->thp);
         buffer.write(this->temperature);
         buffer.write(this->control);
+        buffer.write(this->efficiency_scaling_factor);
+
+        this->filtrate.write(buffer);
 
         {
-            const auto status = ::Opm::Well::Status2String(this->dynamicStatus);
+            const auto status = ::Opm::WellStatus2String(this->dynamicStatus);
             buffer.write(status);
         }
 
-        unsigned int size = this->connections.size();
-        buffer.write(size);
-        for (const Connection& comp : this->connections)
-            comp.write(buffer);
+        {
+            const unsigned int size = this->connections.size();
+            buffer.write(size);
+
+            for (const Connection& comp : this->connections) {
+                comp.write(buffer);
+            }
+        }
 
         {
             const auto nSeg =
@@ -1008,6 +1365,18 @@ namespace Opm {
 
         this->current_control.write(buffer);
         this->guide_rates.write(buffer);
+        this->limits.write(buffer);
+    }
+
+    template <class MessageBufferType>
+    void WellBlockAveragePressures::write(MessageBufferType& buffer) const
+    {
+        buffer.write(this->values.size());
+
+        for (const auto& [well, value] : this->values) {
+            buffer.write(well);
+            value.write(buffer);
+        }
     }
 
     template <class MessageBufferType>
@@ -1032,6 +1401,7 @@ namespace Opm {
             buffer.read(this->well_potential_gas);
             buffer.read(this->brine);
             buffer.read(this->alq);
+
             //tracer:
             unsigned int size;
             buffer.read(size);
@@ -1042,8 +1412,22 @@ namespace Opm {
                 buffer.read(tracer_rate);
                 this->tracer.emplace(tracer_name, tracer_rate);
             }
+
             buffer.read(this->micp);
             buffer.read(this->vaporized_water);
+            buffer.read(this->mass_gas);
+    }
+
+    template <class MessageBufferType>
+    void ConnectionFiltrate::read(MessageBufferType& buffer) {
+        buffer.read(this->rate);
+        buffer.read(this->total);
+        buffer.read(this->skin_factor);
+        buffer.read(this->thickness);
+        buffer.read(this->perm);
+        buffer.read(this->poro);
+        buffer.read(this->radius);
+        buffer.read(this->area_of_flow);
     }
 
    template <class MessageBufferType>
@@ -1057,6 +1441,9 @@ namespace Opm {
             buffer.read(this->cell_saturation_gas);
             buffer.read(this->effective_Kh);
             buffer.read(this->trans_factor);
+            buffer.read(this->d_factor);
+            buffer.read(this->compact_mult);
+            this->filtrate.read(buffer);
    }
 
     template <class MessageBufferType>
@@ -1068,6 +1455,7 @@ namespace Opm {
         this->velocity.read(buffer);
         this->holdup.read(buffer);
         this->viscosity.read(buffer);
+        this->density.read(buffer);
     }
 
     template <class MessageBufferType>
@@ -1083,27 +1471,49 @@ namespace Opm {
     }
 
     template <class MessageBufferType>
-    void Well::read(MessageBufferType& buffer) {
+    void WellBlockAvgPress::read(MessageBufferType& buffer)
+    {
+        for (auto& quantity : this->wbp_) {
+            buffer.read(quantity);
+        }
+    }
+
+    template <class MessageBufferType>
+    void WellFiltrate::read(MessageBufferType& buffer)
+    {
+        buffer.read(this->rate);
+        buffer.read(this->total);
+        buffer.read(this->concentration);
+    }
+
+    template <class MessageBufferType>
+    void Well::read(MessageBufferType& buffer)
+    {
         this->rates.read(buffer);
+
         buffer.read(this->bhp);
         buffer.read(this->thp);
         buffer.read(this->temperature);
         buffer.read(this->control);
+        buffer.read(this->efficiency_scaling_factor);
+
+        this->filtrate.read(buffer);
 
         {
             auto status = std::string{};
             buffer.read(status);
-            this->dynamicStatus = ::Opm::Well::StatusFromString(status);
+            this->dynamicStatus = ::Opm::WellStatusFromString(status);
         }
 
         // Connection information
-        unsigned int size = 0.0; //this->connections.size();
-        buffer.read(size);
-        this->connections.resize(size);
-        for (size_t i = 0;  i < size; ++i)
         {
-            auto& comp = this->connections[ i ];
-            comp.read(buffer);
+            unsigned int size = 0;
+            buffer.read(size);
+
+            this->connections.resize(size);
+            for (auto& connection : this->connections) {
+                connection.read(buffer);
+            }
         }
 
         // Segment information (if applicable)
@@ -1125,6 +1535,26 @@ namespace Opm {
 
         this->current_control.read(buffer);
         this->guide_rates.read(buffer);
+        this->limits.read(buffer);
+    }
+
+    template <class MessageBufferType>
+    void WellBlockAveragePressures::read(MessageBufferType& buffer)
+    {
+        const auto numWells = [&buffer, this]()
+        {
+            auto size = 0*this->values.size();
+            buffer.read(size);
+
+            return size;
+        }();
+
+        auto wellName = std::string{};
+        for (auto well = 0*numWells; well < numWells; ++well) {
+            buffer.read(wellName);
+
+            this->values[wellName].read(buffer);
+        }
     }
 
     void Well::init_json(Json::JsonObject& json_data) const {
@@ -1139,7 +1569,7 @@ namespace Opm {
         json_data.add_item("bhp", this->bhp);
         json_data.add_item("thp", this->thp);
         json_data.add_item("temperature", this->temperature);
-        json_data.add_item("status", ::Opm::Well::Status2String(this->dynamicStatus));
+        json_data.add_item("status", ::Opm::WellStatus2String(this->dynamicStatus));
 
         auto json_control = json_data.add_object("control");
         this->current_control.init_json(json_control);

@@ -20,6 +20,7 @@
 #ifndef GPMAINT_HPP
 #define GPMAINT_HPP
 
+#include <cstddef>
 #include <optional>
 #include <string>
 
@@ -27,27 +28,37 @@ namespace Opm {
 
 class DeckRecord;
 
-class GPMaint {
+class GPMaint
+{
 public:
+    enum class FlowTarget {
+        RESV_PROD = 0,
+        RESV_OINJ = 1,
+        RESV_WINJ = 2,
+        RESV_GINJ = 3,
+        SURF_OINJ = 4,
+        SURF_WINJ = 5,
+        SURF_GINJ = 6,
+    };
 
-enum class FlowTarget {
-    RESV_PROD = 0,
-    RESV_OINJ = 1,
-    RESV_WINJ = 2,
-    RESV_GINJ = 3,
-    SURF_OINJ = 4,
-    SURF_WINJ = 5,
-    SURF_GINJ = 6,
-};
+    struct State
+    {
+        std::optional<std::size_t> report_step{};
+        double error_integral{};
+        double initial_rate{};
 
-class State {
-friend class GPMaint;
-    std::optional<std::size_t> report_step;
-    double error_integral;
-    double initial_rate;
-};
+        static State serializationTestObject();
 
+        bool operator==(const State& rhs) const;
 
+        template<class Serializer>
+        void serializeOp(Serializer& serializer)
+        {
+            serializer(report_step);
+            serializer(error_integral);
+            serializer(initial_rate);
+        }
+    };
 
     GPMaint() = default;
     GPMaint(std::size_t report_step, const DeckRecord& record);
@@ -57,6 +68,7 @@ friend class GPMaint;
     double prop_constant() const;
     double time_constant() const;
     double rate(State& state, double current_rate, double error, double dt) const;
+    void resetState(State& state) const;
     std::optional<std::pair<std::string, int>> region() const;
     FlowTarget flow_target() const;
     bool operator==(const GPMaint& other) const;
@@ -74,14 +86,16 @@ friend class GPMaint;
 
 private:
     static FlowTarget FlowTargetFromString(const std::string& stringvalue);
-    FlowTarget m_flow_target;
-    int m_region_number;
-    std::string m_region_name;
-    double m_pressure_target;
-    double m_prop_constant;
-    double m_time_constant;
-    std::size_t m_report_step;
+
+    FlowTarget m_flow_target{FlowTarget::RESV_GINJ};
+    int m_region_number{};
+    std::string m_region_name{};
+    double m_pressure_target{};
+    double m_prop_constant{};
+    double m_time_constant{};
+    std::size_t m_report_step{};
 };
+
 }
 
 #endif

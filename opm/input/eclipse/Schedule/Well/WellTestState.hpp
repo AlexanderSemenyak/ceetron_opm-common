@@ -19,17 +19,17 @@
 #ifndef WELLTEST_STATE_H
 #define WELLTEST_STATE_H
 
+#include <opm/input/eclipse/Schedule/Well/WellTestConfig.hpp>
+
+#include <opm/io/eclipse/rst/state.hpp>
+
 #include <cstddef>
+#include <ctime>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
-#include <opm/io/eclipse/rst/state.hpp>
-
-#include <opm/input/eclipse/Schedule/Well/WellTestConfig.hpp>
-#include <opm/input/eclipse/Schedule/Well/Well.hpp>
-
-namespace Opm {
 
 namespace {
 
@@ -57,7 +57,10 @@ void unpack_map(BufferType& buffer, M& m) {
 
 }
 
+namespace Opm {
 
+class WellTestConfig;
+namespace WTest { enum class Reason; }
 
 class WellTestState {
 public:
@@ -91,19 +94,19 @@ public:
     };
 
     struct WTestWell {
-        std::string name;
-        WellTestConfig::Reason reason;
-        double last_test;
+        std::string name{};
+        WTest::Reason reason{WTest::Reason::NONE};
+        double last_test{};
 
         int num_attempt{0};
         bool closed{true};
-        std::optional<int> wtest_report_step;
+        std::optional<int> wtest_report_step{};
 
         WTestWell() = default;
-        WTestWell(const std::string& wname, WellTestConfig::Reason reason_, double last_test);
+        WTestWell(const std::string& wname, WTest::Reason reason_, double last_test);
 
         int int_reason() const;
-        static WellTestConfig::Reason inverse_ecl_reason(int ecl_reason);
+        static WTest::Reason inverse_ecl_reason(int ecl_reason);
 
         bool operator==(const WTestWell& other) const {
             return this->name == other.name &&
@@ -150,10 +153,10 @@ public:
 
 
     struct ClosedCompletion {
-        std::string wellName;
-        int complnum;
-        double last_test;
-        int num_attempt;
+        std::string wellName{};
+        int complnum{};
+        double last_test{};
+        int num_attempt{};
 
         bool operator==(const ClosedCompletion& other) const {
             return this->wellName == other.wellName &&
@@ -212,7 +215,7 @@ public:
 
       That is the reason we do not have any xxx_is_open() predicates.
     */
-    void close_well(const std::string& well_name, WellTestConfig::Reason reason, double sim_time);
+    void close_well(const std::string& well_name, WTest::Reason reason, double sim_time);
     bool well_is_closed(const std::string& well_name) const;
     void open_well(const std::string& well_name);
     std::size_t num_closed_wells() const;
@@ -257,27 +260,8 @@ public:
     void serializeOp(Serializer& serializer)
     {
         serializer(this->wells);
-        if (serializer.isSerializing()) {
-            std::size_t size = this->completions.size();
-            serializer(size);
-            for (auto& [well, comp_map] : this->completions) {
-                serializer(well);
-                serializer(comp_map);
-            }
-        } else {
-            std::size_t size = 0;
-            serializer(size);
-            for (std::size_t i=0; i < size; i++) {
-                std::string well;
-                std::unordered_map<int, ClosedCompletion> comp_map;
-
-                serializer(well);
-                serializer(comp_map);
-                this->completions.emplace(well, std::move(comp_map));
-            }
-        }
+        serializer(this->completions);
     }
-
 
     static WellTestState serializationTestObject();
     bool operator==(const WellTestState& other) const;

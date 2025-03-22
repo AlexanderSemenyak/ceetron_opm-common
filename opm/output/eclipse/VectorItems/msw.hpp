@@ -22,7 +22,7 @@
 
 #include <vector>
 
-namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems {
+namespace Opm::RestartIO::Helpers::VectorItems {
 
     namespace ISeg {
 
@@ -38,7 +38,26 @@ namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems 
             ICDOpenShutFlag = 19,
         };
 
+        namespace Value {
+            enum Type {
+                AutoICD   = -8, // Segment is an AICD
+                SpiralICD = -7, // Segment is an SICD
+                Valve     = -5, // Segment is a Valve
+                Regular   = -1, // Regular segment (i.e., not a device &c)
+            };
+        } // Value
+
     } // ISeg
+
+    namespace ILbr {
+        enum index : std::vector<int>::size_type {
+            OutletSegment          = 0, // Branch's outlet segment (one-based)
+            NumBranchSegments      = 1, // Number of segments on branch
+            FirstSegment           = 2, // First segment on branch (kick-off, heel)
+            LastSegment            = 3, // Last segment on branch (toe)
+            KickOffDiscoveryOffset = 4, // Segment traversal order at which this branch was encountered
+        };
+    } // ILbr
 
     namespace RSeg {
         enum index : std::vector<double>::size_type {
@@ -49,7 +68,7 @@ namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems 
             SegArea         = 4, // Cross-sectional area of segment
             SegVolume       = 5, // Physical volume of segment
             DistBHPRef      = 6, // Segment's distance to BHP reference node
-            DepthBHPRef     = 7, // Segment's depth differential to BHP ref. node
+            SegNodeDepth    = 7, // Segment's node depth
 
             TotFlowRate  =  8,  // Normalised total segment flow rate
             WatFlowFract =  9,  // Normalised Water flow rate fraction
@@ -94,6 +113,6 @@ namespace Opm { namespace RestartIO { namespace Helpers { namespace VectorItems 
         };
     } // RSeg
 
-}}}} // Opm::RestartIO::Helpers::VectorItems
+} // Opm::RestartIO::Helpers::VectorItems
 
 #endif // OPM_OUTPUT_ECLIPSE_VECTOR_MSW_HPP

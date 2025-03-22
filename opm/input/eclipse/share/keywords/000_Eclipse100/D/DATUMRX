@@ -1,0 +1,19 @@
+{
+  "name": "DATUMRX",
+  "sections": [
+    "SOLUTION"
+  ],
+  "items": [
+    {
+      "name": "REGION_FAMILY",
+      "value_type": "STRING",
+      "default": ""
+    },
+    {
+      "name": "DEPTH",
+      "value_type": "DOUBLE",
+      "size_type": "ALL",
+      "dimension": "Length"
+    }
+  ]
+}

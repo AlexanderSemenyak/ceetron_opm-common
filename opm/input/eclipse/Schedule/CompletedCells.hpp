@@ -16,87 +16,67 @@
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
+
 #ifndef COMPLETED_CELLS
 #define COMPLETED_CELLS
-#include <optional>
-#include <unordered_map>
 
 #include <opm/input/eclipse/EclipseState/Grid/GridDims.hpp>
 
+#include <array>
+#include <cstddef>
+#include <optional>
+#include <unordered_map>
+#include <utility>
+
 namespace Opm {
 
-class CompletedCells {
+class CompletedCells
+{
 public:
+    struct Cell
+    {
+        std::size_t global_index{};
+        std::size_t i{}, j{}, k{};
 
-    struct Cell {
-        std::size_t global_index;
-        std::size_t i, j, k;
+        struct Props
+        {
+            std::size_t active_index{};
+            double permx{};
+            double permy{};
+            double permz{};
+            double poro{};
+            int satnum{};
+            int pvtnum{};
+            double ntg{};
 
-        struct Props{
-            std::size_t active_index;
-            double permx;
-            double permy;
-            double permz;
-            int satnum;
-            int pvtnum;
-            double ntg;
+            bool operator==(const Props& other) const;
 
-            bool operator==(const Props& other) const{
-                return this->active_index == other.active_index &&
-                       this->permx == other.permx &&
-                       this->permy == other.permy &&
-                       this->permz == other.permz &&
-                       this->satnum == other.satnum &&
-                       this->pvtnum == other.pvtnum &&
-                       this->ntg == other.ntg;
-            }
+            static Props serializationTestObject();
 
             template<class Serializer>
             void serializeOp(Serializer& serializer)
             {
+                serializer(this->active_index);
                 serializer(this->permx);
                 serializer(this->permy);
                 serializer(this->permz);
+                serializer(this->poro);
                 serializer(this->satnum);
                 serializer(this->pvtnum);
                 serializer(this->ntg);
             }
-
-            static Props serializationTestObject(){
-                Props props;
-                props.permx = 10.0;
-                props.permy = 78.0;
-                props.permz = 45.4;
-                props.satnum = 3;
-                props.pvtnum = 5;
-                props.ntg = 45.1;
-                return props;
-            }
         };
 
-        std::optional<Props> props;
+        std::optional<Props> props{};
         std::size_t active_index() const;
         bool is_active() const;
 
-        double depth;
-        std::array<double, 3> dimensions;
+        double depth{};
+        std::array<double, 3> dimensions{};
 
-        bool operator==(const Cell& other) const {
-            return this->global_index == other.global_index &&
-                   this->i == other.i &&
-                   this->j == other.j &&
-                   this->k == other.k &&
-                   this->depth == other.depth &&
-                   this->dimensions == other.dimensions &&
-                   this->props == other.props;
-        }
+        bool operator==(const Cell& other) const;
 
-        static Cell serializationTestObject() {
-            Cell cell(0,1,1,1);
-            cell.depth = 12345;
-            cell.dimensions = {1.0,2.0,3.0};
-            return cell;
-        }
+        static Cell serializationTestObject();
 
         template<class Serializer>
         void serializeOp(Serializer& serializer)
@@ -105,8 +85,8 @@ public:
             serializer(this->i);
             serializer(this->j);
             serializer(this->k);
-            serializer(this->depth);
             serializer(this->props);
+            serializer(this->depth);
             serializer(this->dimensions);
         }
 
@@ -121,8 +101,10 @@ public:
     };
 
     CompletedCells() = default;
-    CompletedCells(const GridDims& dims);
+    ~CompletedCells() = default;
+    explicit CompletedCells(const GridDims& dims);
     CompletedCells(std::size_t nx, std::size_t ny, std::size_t nz);
+
     const Cell& get(std::size_t i, std::size_t j, std::size_t k) const;
     std::pair<bool, Cell&> try_get(std::size_t i, std::size_t j, std::size_t k);
 
@@ -141,5 +123,5 @@ private:
     std::unordered_map<std::size_t, Cell> cells;
 };
 }
-#endif
 
+#endif  // COMPLETED_CELLS

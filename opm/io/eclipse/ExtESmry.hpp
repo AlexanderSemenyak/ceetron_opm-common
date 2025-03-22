@@ -54,7 +54,7 @@ public:
     void loadData(const std::vector<std::string>& stringVect);
 
     time_point startdate() const { return m_startdat; }
-    std::vector<int> start_v() const { return m_start_vect; }
+    const std::vector<int>& start_v() const { return m_start_vect; }
 
     bool hasKey(const std::string& key) const;
 
@@ -67,7 +67,7 @@ public:
     std::vector<time_point> dates();
 
     bool all_steps_available();
-    std::string rootname() { return m_inputFileName.stem(); }
+    std::string rootname() { return m_inputFileName.stem().generic_string(); }
     std::tuple<double, double> get_io_elapsed() const;
 
 private:

@@ -24,7 +24,6 @@
 #include <opm/common/OpmLog/OpmLog.hpp>
 
 #include <string>
-#include <sstream>
 #include <exception>
 #include <stdexcept>
 #include <cassert>
@@ -41,30 +40,51 @@
 # define OPM_MESSAGE_IF(cond, m) do {} while (false)
 #endif
 
-// Macro to throw an exception. NOTE: For this macro to work, the
+// Macro to throw an exception that counts as an error in PRT file.
+// NOTE: For this macro to work, the
 // exception class must exhibit a constructor with the signature
 // (const std::string &message). Since this condition is not fulfilled
 // for the std::exception, you should use this macro with some
 // exception class derived from either std::logic_error or
 // std::runtime_error.
 //
-// Usage: OPM_THROW(ExceptionClass, "Error message " << value);
-#define OPM_THROW(Exception, message)                                                        \
-    do {                                                                                     \
-        std::ostringstream opmErrorMacroOStringStream;                                       \
-        opmErrorMacroOStringStream << "[" << __FILE__ << ":" << __LINE__ << "] " << message; \
-        ::Opm::OpmLog::error(opmErrorMacroOStringStream.str());                              \
-        throw Exception(opmErrorMacroOStringStream.str());                                   \
+// Usage: OPM_THROW(ExceptionClass, "Error message");
+#define OPM_THROW(Exception, message)                          \
+    do {                                                       \
+        std::string oss_ = std::string{"["} + __FILE__ + ":" + \
+                           std::to_string(__LINE__) + "] " +   \
+                           message;                            \
+        ::Opm::OpmLog::error(oss_);                            \
+        throw Exception(oss_);                                 \
+    } while (false)
+
+// Macro to throw an exception that only counts as a problem in PRT file.
+// NOTE: For this macro to work, the
+// exception class must exhibit a constructor with the signature
+// (const std::string &message). Since this condition is not fulfilled
+// for the std::exception, you should use this macro with some
+// exception class derived from either std::logic_error or
+// std::runtime_error.
+//
+// Usage: OPM_THROW_PROBLEM(ExceptionClass, "Error message");
+#define OPM_THROW_PROBLEM(Exception, message)                          \
+    do {                                                       \
+        std::string oss_ = std::string{"["} + __FILE__ + ":" + \
+                           std::to_string(__LINE__) + "] " +   \
+                           message;                            \
+        ::Opm::OpmLog::problem(oss_);                            \
+        throw Exception(oss_);                                 \
     } while (false)
 
 // Same as OPM_THROW, except for not making an OpmLog::error() call.
 //
-// Usage: OPM_THROW_NOLOG(ExceptionClass, "Error message " << value);
-#define OPM_THROW_NOLOG(Exception, message)                                                  \
-    do {                                                                                     \
-        std::ostringstream opmErrorMacroOStringStream;                                       \
-        opmErrorMacroOStringStream << "[" << __FILE__ << ":" << __LINE__ << "] " << message; \
-        throw Exception(opmErrorMacroOStringStream.str());                                   \
+// Usage: OPM_THROW_NOLOG(ExceptionClass, "Error message");
+#define OPM_THROW_NOLOG(Exception, message)                    \
+    do {                                                       \
+        std::string oss_ = std::string{"["} + __FILE__ + ":" + \
+                           std::to_string(__LINE__) + "] " +   \
+                           message;                            \
+        throw Exception(oss_);                                 \
     } while (false)
 
 // throw an exception if a condition is true

@@ -1,5 +1,5 @@
-project(opm-common C CXX)
 cmake_minimum_required (VERSION 3.10)
+project(opm-common C CXX)
 
 option(SIBLING_SEARCH "Search for other modules in sibling directories?" ON)
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
@@ -11,6 +11,7 @@ option(ENABLE_MOCKSIM "Build the mock simulator for io testing" ON)
 option(OPM_ENABLE_PYTHON "Enable python bindings?" OFF)
 option(OPM_INSTALL_PYTHON "Install python bindings?" ON)
 option(OPM_ENABLE_EMBEDDED_PYTHON "Enable embedded python?" OFF)
+option(OPM_ENABLE_DUNE "Enable code requiring dune-common?" ON)
 
 # Output implies input
 if(ENABLE_ECL_OUTPUT)
@@ -72,18 +73,14 @@ if(fmt_FOUND)
   # OpmSatellites will not add the library, do it here.
   list(APPEND opm-common_LIBRARIES fmt::fmt)
 else()
-  add_definitions(-DFMT_HEADER_ONLY)
-  include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/external/fmtlib/include)
-  # Not sure why this is needed.
-  list(APPEND EXTRA_INCLUDES ${PROJECT_SOURCE_DIR}/external/fmtlib/include)
+  include(DownloadFmt)
 endif()
 
 if(OPM_ENABLE_EMBEDDED_PYTHON AND NOT OPM_ENABLE_PYTHON)
   # This needs to be here to run before source_hook
   message(WARNING "Inconsistent settings: OPM_ENABLE_PYTHON=OFF and "
-    "OPM_ENABLE_EMBEDDED_PYTHON=ON. Please use OPM_ENABLE_PYTHON=ON to "
-    "activate. Will disable embedded python in this run.")
-  set(OPM_ENABLE_EMBEDDED_PYTHON OFF CACHE BOOL "Enable embedded python?" FORCE)
+    "OPM_ENABLE_EMBEDDED_PYTHON=ON. OPM_ENABLE_EMBEDDED_PYTHON=ON now implies OPM_ENABLE_PYTHON=ON.")
+  set(OPM_ENABLE_PYTHON ON CACHE BOOL "Enable python bindings?" FORCE)
 endif()
 # read the list of components from this file (in the project directory);
 # it should set various lists with the names of the files to include
@@ -91,10 +88,6 @@ include (CMakeLists_files.cmake)
 
 macro (config_hook)
   if(ENABLE_ECL_INPUT)
-    if(NOT cjson_FOUND)
-      list(APPEND EXTRA_INCLUDES ${PROJECT_SOURCE_DIR}/external/cjson)
-    endif()
-
     # For this project
     include_directories(${EXTRA_INCLUDES} ${PROJECT_BINARY_DIR}/include)
     # For downstreams
@@ -106,6 +99,7 @@ macro (config_hook)
                                          set(HAVE_ECL_INPUT 1)")
       set(OPM_PROJECT_EXTRA_CODE_INSTALLED "${OPM_PROJECT_EXTRA_CODE_INSTALLED}
                                             set(HAVE_ECL_INPUT 1)")
+      set(HAVE_ECL_INPUT 1)
     endif()
     if(ENABLE_ECL_OUTPUT)
       set(OPM_PROJECT_EXTRA_CODE_INTREE "${OPM_PROJECT_EXTRA_CODE_INTREE}
@@ -113,12 +107,28 @@ macro (config_hook)
       set(OPM_PROJECT_EXTRA_CODE_INSTALLED "${OPM_PROJECT_EXTRA_CODE_INSTALLED}
                                             set(HAVE_ECL_OUTPUT 1)")
     endif()
-
-    find_package(Boost COMPONENTS filesystem regex system unit_test_framework)
+    # We need to use the correct search mode. Otherwise not finding one
+    # boost component beloq will mark the previously found ones as not
+    # found again. (Code stolen from UseDynamicBoost.cmake
+    if(Boost_DIR)
+      set(_Boost_CONFIG_MODE CONFIG)
+    endif()
+    find_package(Boost COMPONENTS filesystem regex system unit_test_framework ${_Boost_CONFIG_MODE})
 
     if (HAVE_DYNAMIC_BOOST_TEST)
       set_target_properties(Boost::unit_test_framework PROPERTIES INTERFACE_COMPILE_DEFINITIONS BOOST_TEST_DYN_LINK=1)
     endif()
+  endif()
+
+  include(CheckIncludeFile)
+  check_include_file(fnmatch.h FNMATCH_H_FOUND)
+  if (FNMATCH_H_FOUND)
+    set(HAVE_FNMATCH_H 1)
+  endif()
+
+  if(OPM_ENABLE_DUNE)
+    find_package(dune-common REQUIRED)
+    opm_need_version_of ("dune-common")
   endif()
 endmacro (config_hook)
 
@@ -126,6 +136,12 @@ macro (prereqs_hook)
 endmacro (prereqs_hook)
 
 macro (sources_hook)
+  if(NOT cjson_FOUND)
+    include(DownloadCjson)
+    include_directories(${cjson_SOURCE_DIR})
+    list(APPEND opm-common_SOURCES ${cjson_SOURCE_DIR}/cJSON.c)
+  endif()
+
   if(ENABLE_ECL_INPUT)
     # Keyword generation
     include(GenerateKeywords.cmake)
@@ -134,6 +150,8 @@ macro (sources_hook)
     list(INSERT opm-common_SOURCES 0 ${PROJECT_BINARY_DIR}/ParserInit.cpp)
     foreach (name A B C D E F G H I J K L M N O P Q R S T U V W X Y Z)
         list(INSERT opm-common_SOURCES 0 ${PROJECT_BINARY_DIR}/ParserKeywords/${name}.cpp)
+        list(INSERT opm-common_SOURCES 0 ${PROJECT_BINARY_DIR}/ParserKeywords/ParserInit${name}.cpp)
+        list(INSERT opm-common_SOURCES 0 ${PROJECT_BINARY_DIR}/ParserKeywords/Builtin${name}.cpp)
         list(INSERT opm-common_HEADERS 0 ${PROJECT_BINARY_DIR}/include/opm/input/eclipse/Parser/ParserKeywords/${name}.hpp)
     endforeach()
     if (OPM_ENABLE_EMBEDDED_PYTHON)
@@ -142,6 +160,30 @@ macro (sources_hook)
   endif()
   set_source_files_properties(src/opm/input/eclipse/Python/Python.cpp
                               PROPERTIES COMPILE_FLAGS -Wno-shadow)
+  if (OPM_ENABLE_PYTHON)
+    # Set the path to the input docstrings.json file and the output .hpp file
+    set(PYTHON_DOCSTRINGS_FILE "${PROJECT_SOURCE_DIR}/python/docstrings_common.json")
+    set(PYTHON_DOCSTRINGS_GENERATED_HPP "${PROJECT_BINARY_DIR}/python/cxx/OpmCommonPythonDoc.hpp")
+    # Command to run the Python script
+    add_custom_command(
+        OUTPUT ${PYTHON_DOCSTRINGS_GENERATED_HPP}
+        COMMAND ${PYTHON_EXECUTABLE} ${PROJECT_SOURCE_DIR}/python/generate_docstring_hpp.py
+                ${PYTHON_DOCSTRINGS_FILE} ${PYTHON_DOCSTRINGS_GENERATED_HPP} OPMCOMMONPYTHONDOC_HPP "Opm::Common::DocStrings"
+        DEPENDS ${PYTHON_DOCSTRINGS_FILE}
+        COMMENT "Generating OpmCommonPythonDoc.hpp from JSON file"
+    )
+    list(INSERT opm-common_SOURCES 0 ${PYTHON_DOCSTRINGS_GENERATED_HPP})
+  endif()
+
+  if(QuadMath_FOUND)
+    get_target_property(qm_defs QuadMath::QuadMath INTERFACE_COMPILE_DEFINITIONS)
+    list(APPEND qm_defs HAVE_QUAD=1)
+    get_target_property(qm_options QuadMath::QuadMath INTERFACE_COMPILE_OPTIONS)
+    set_source_files_properties(opm/material/components/CO2.cpp
+                                opm/material/densead/Evaluation.cpp
+                                PROPERTIES COMPILE_DEFINITIONS "${qm_defs}"
+                                COMPILE_OPTIONS "${qm_options}")
+  endif()
 endmacro (sources_hook)
 
 macro (fortran_hook)
@@ -153,6 +195,9 @@ endmacro (files_hook)
 macro (tests_hook)
   if(ENABLE_ECL_INPUT)
     include(ExtraTests.cmake)
+  endif()
+  if (dune-common_FOUND)
+    list(APPEND tests_SOURCES ${DUNE_TEST_SOURCE_FILES})
   endif()
 endmacro (tests_hook)
 
@@ -174,7 +219,7 @@ endmacro()
 # that all downstream modules link libpython transitively. Due to the required
 # integration with Python+cmake machinery provided by pybind11 this is done by
 # manually adding to the opm-common_LIBRARIES variable here, and not in the
-# OpmnLibMain function. Here only the library dependency is implemented, the
+# OpmLibMain function. Here only the library dependency is implemented, the
 # bulk of the python configuration is further down in the file.
 if (OPM_ENABLE_PYTHON)
   # We need to be compatible with older CMake versions
@@ -198,26 +243,25 @@ if (OPM_ENABLE_PYTHON)
     if(PYTHON_EXECUTABLE AND NOT Python3_EXECUTABLE)
       set(Python3_EXECUTABLE ${PYTHON_EXECUTABLE})
     endif()
-    if (OPM_ENABLE_EMBEDDED_PYTHON)
-      find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+    # We always need to search for Development as we use
+    # pybind11_add_module even if don't embed Python
+    if (NOT OPM_ENABLE_EMBEDDED_PYTHON)
+      if(${CMAKE_VERSION} VERSION_LESS "3.18.0")
+        find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+      else()
+        find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
+      endif()
+    else()
+      if(${CMAKE_VERSION} VERSION_LESS "3.18.0")
+        find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+      else()
+        find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Embed Development.Module)
+      endif()
       get_target_property(_lib_path Python3::Python IMPORTED_LOCATION)
       set(PYTHON_LIBRARY ${_lib_path})
       set(PYTHON_LIBRARIES {PYTHON_LIBRARY})
       list(APPEND opm-common_LIBRARIES ${PYTHON_LIBRARY})
       set(PYTHON_INCLUDE_DIRS ${Python3_INCLUDE_DIRS})
-    else()
-      find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    endif()
-    # Make sure we fail gracefully here without setuptool
-    execute_process(COMMAND ${Python3_EXECUTABLE} -c "import setuptools"
-      WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
-      ERROR_VARIABLE SETUPTOOL_ERROR OUTPUT_VARIABLE SETUPTOOL_OUT
-      RESULT_VARIABLE SETUPTOOL_RESULT)
-    if(SETUPTOOL_RESULT GREATER 0)
-      message(WARNING "Trying to test setuptools resulted in error message: ${SETUPTOOL_ERROR}")
-      message(SEND_ERROR "To build the python bindings you need to install setuptool. "
-        "Either use \"apt-get install python3-setuptools\" (on Debian/Ubuntu) "
-        "or \"pip install setuptools\"")
     endif()
     if(Python3_VERSION_MINOR LESS 3)
       # Python native namespace packages requires python >= 3.3
@@ -252,8 +296,7 @@ if (OPM_ENABLE_PYTHON)
   endif()
   find_package(pybind11 2.2 CONFIG)
   if (NOT pybind11_FOUND)
-    # Use full path for reuse with pypi
-    set(pybind11_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/python/pybind11/include ${PYTHON_INCLUDE_DIRS})
+    include(DownloadPyBind11)
   endif()
 endif()
 
@@ -279,6 +322,8 @@ if (ENABLE_MOCKSIM AND ENABLE_ECL_INPUT)
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/tests
         CONDITION ${HAVE_ECL_INPUT})
     endforeach()
+    set_tests_properties(msim_ACTIONX PROPERTIES
+                        ENVIRONMENT "PYTHONPATH=${PROJECT_BINARY_DIR}/python:$ENV{PYTHONPATH}")
   endif()
 endif()
 
@@ -342,6 +387,33 @@ if(ENABLE_ECL_INPUT)
 
 endif()
 
+if(dune-common_FOUND)
+  # Explicitly link tests needing dune-common.
+  # To avoid pulling dune-common into the opm-common interface
+  target_include_directories(dunecommon INTERFACE ${dune-common_INCLUDE_DIRS})
+  string(REPLACE " " ";" dflags "${dune-common_CXX_FLAGS}")
+  target_compile_options(dunecommon INTERFACE ${dflags})
+  target_compile_definitions(dunecommon INTERFACE DUNE_COMMON_VERSION_MAJOR=${DUNE_COMMON_VERSION_MAJOR})
+  target_compile_definitions(dunecommon INTERFACE DUNE_COMMON_VERSION_MINOR=${DUNE_COMMON_VERSION_MINOR})
+  target_compile_definitions(dunecommon INTERFACE DUNE_COMMON_VERSION_REVISION=${DUNE_COMMON_VERSION_REVISION})
+  if(Boost_UNIT_TEST_FRAMEWORK_FOUND)
+    foreach(src ${DUNE_TEST_SOURCE_FILES})
+      get_filename_component(tgt ${src} NAME_WE)
+      target_link_libraries(${tgt} dunecommon)
+    endforeach()
+  endif()
+  if(BUILD_EXAMPLES)
+    target_link_libraries(co2brinepvt dunecommon)
+  endif()
+endif()
+
+if(Boost_UNIT_TEST_FRAMEWORK_FOUND)
+  foreach(test ACTIONX EmbeddedPython PYACTION)
+    set_tests_properties(${test} PROPERTIES
+                         ENVIRONMENT "PYTHONPATH=${PROJECT_BINARY_DIR}/python:$ENV{PYTHONPATH}")
+  endforeach()
+endif()
+
 # Install build system files and documentation
 install(DIRECTORY cmake
   DESTINATION share/opm USE_SOURCE_PERMISSIONS
@@ -354,120 +426,73 @@ install(FILES cmake/OPM-CMake.md
 install(FILES etc/opm_bash_completion.sh.in DESTINATION share/opm/etc)
 
 if (OPM_ENABLE_PYTHON)
-  include(PyInstallPrefix)
   make_directory(${PROJECT_BINARY_DIR}/python)
-  get_target_property(_opmcommon_include_dirs opmcommon INCLUDE_DIRECTORIES)
-  list(APPEND _opmcommon_include_dirs ${_ecl_include_dirs})
-  string(REPLACE ";" ":" _setup_include_dirs "${_opmcommon_include_dirs}")
-
-  get_target_property(_opmcommon_lib_dirs opmcommon LINK_DIRECTORIES)
-  if (CMAKE_PREFIX_PATH)
-    list(APPEND _opmcommon_lib_dirs ${PROJECT_BINARY_DIR}/lib ${CMAKE_PREFIX_PATH}/${CMAKE_INSTALL_LIBDIR})
-  else()
-    list(APPEND _opmcommon_lib_dirs ${PROJECT_BINARY_DIR}/lib)
-  endif()
-  string(REPLACE ";" ":" _setup_lib_dirs "${_opmcommon_lib_dirs}")
-
-  if (USE_RUNPATH)
-    set (_python_rpath_list)
-    if (CMAKE_PREFIX_PATH)
-      foreach(path ${CMAKE_PREFIX_PATH})
-        list(APPEND _python_rpath_list "${path}/${CMAKE_INSTALL_LIBDIR}")
-      endforeach()
-    endif()
-
-    if (BUILD_SHARED_LIBS)
-      if (OPM_INSTALL_PYTHON)
-        list(APPEND _python_rpath_list "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
-        list(APPEND _python_rpath_list "${PROJECT_BINARY_DIR}/lib")
-      else()
-        list(APPEND _python_rpath_list "${PROJECT_BINARY_DIR}/lib")
-      endif()
-    endif()
-
-    if (_python_rpath_list)
-      string(REPLACE ";" ":" _rpath "${_python_rpath_list}")
-      set( _rpath_arg "--rpath=${_rpath}")
-    else()
-      set(_rpath_arg "")
-    endif()
-  else()
-    set( _rpath_arg "")
-  endif()
 
   set(opm-common_PYTHON_PACKAGE_VERSION ${OPM_PYTHON_PACKAGE_VERSION_TAG})
-  set(SETUP_PY_FLAGS "'-std=c++17'")
-
-  # Generate versioned setup.py
-  if (pybind11_INCLUDE_DIRS)
-    append_quoted(SETUP_PY_INCLUDE_DIRS pybind11_INCLUDE_DIRS)
-  endif()
-
-  if (TARGET fmt::fmt)
-     get_target_property(SETUP_PY_FMT_LIBS fmt::fmt LOCATION)
-     get_target_property(FMT_FLAGS fmt::fmt INTERFACE_COMPILE_DEFINITIONS)
-     append_quoted(SETUP_PY_FLAGS FMT_FLAGS "-D")
-     append_quoted(opm-common_PYTHON_LINKAGE SETUP_PY_FMT_LIBS)
-  else()
-    list(APPEND SETUP_PY_FLAGS "'-DFMT_HEADER_ONLY'")
-  endif()
-
-  if(cjson_FOUND)
-    append_quoted(opm-common_PYTHON_LINKAGE cjson_LIBRARIES)
-    append_quoted(SETUP_PY_INCLUDE_DIRS cjson_INCLUDE_DIRS)
-  endif()
-
-  if(OpenMP_FOUND)
-    append_quoted(opm-common_PYTHON_LINKAGE OpenMP_CXX_LIBRARIES)
-    append_quoted(SETUP_PY_FLAGS OpenMP_CXX_FLAGS)
-    append_quoted(SETUP_PY_INCLUDE_DIRS OpenMP_CXX_INCLUDE_DIRS)
-  endif()
-
-  # Items need to be comma separated for setup.py generation
-  string(REPLACE ";" "," SETUP_PY_LINKAGE "${opm-common_PYTHON_LINKAGE}")
-  string(REPLACE ";" "," SETUP_PY_FLAGS "${SETUP_PY_FLAGS}")
-  string(REPLACE ";" "," SETUP_PY_INCLUDE_DIRS "${SETUP_PY_INCLUDE_DIRS}")
-
-  configure_file (${PROJECT_SOURCE_DIR}/python/setup.py.in ${PROJECT_BINARY_DIR}/python/setup.py)
-  file(COPY ${PROJECT_SOURCE_DIR}/python/README.md DESTINATION ${PROJECT_BINARY_DIR}/python)
-  execute_process(COMMAND ${Python3_EXECUTABLE} target_name.py
-                  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/python
-                  OUTPUT_VARIABLE python_lib_target)
 
   add_custom_target(copy_python ALL
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/python/install.py ${PROJECT_SOURCE_DIR}/python ${PROJECT_BINARY_DIR} 0)
 
-  add_custom_command(OUTPUT python/opm/${python_lib_target}
-                     DEPENDS ${PYTHON_CXX_DEPENDS}
-                     DEPENDS copy_python
-                     COMMAND ${Python3_EXECUTABLE} ${PROJECT_BINARY_DIR}/python/setup.py
-                                                      build
-                                                      build_ext
-                                                      --build-lib=${PROJECT_BINARY_DIR}/python
-                                                      --library-dirs=${_setup_lib_dirs}
-                                                      ${_rpath_arg}
-                                                      --include-dirs=${_setup_include_dirs}
-                     WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/python
-                     COMMENT "Building python bindings at python/opm/${python_lib_target}")
-  add_custom_target(opmcommon_python ALL DEPENDS python/opm/${python_lib_target})
-  add_dependencies(opmcommon_python opmcommon)
+  file(COPY ${PROJECT_SOURCE_DIR}/python/README.md ${PROJECT_SOURCE_DIR}/python/MANIFEST.in
+       DESTINATION ${PROJECT_BINARY_DIR}/python)
 
-  # The install target is based on manually copying the python file tree to the
-  # installation area with a small installation script 'install.py'. Would have
-  # preferred to use standard setup.py install, but the setup.py based solution
-  # refuses to install to a location which the current python executable can not
-  # load from, and the use of eggs in the setup.py based installation makes
-  # debugging quite difficult.
-  #
+  pybind11_add_module(opmcommon_python
+                      ${PYTHON_CXX_SOURCE_FILES}
+                      ${PROJECT_BINARY_DIR}/python/cxx/builtin_pybind11.cpp)
+
+  target_link_libraries(opmcommon_python PRIVATE
+                        opmcommon)
+  if(TARGET pybind11::pybind11)
+    target_link_libraries(opmcommon_python PRIVATE
+                          pybind11::pybind11)
+  else()
+    target_include_directories(opmcommon_python SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS})
+  endif()
+  set_target_properties(opmcommon_python PROPERTIES
+                        LIBRARY_OUTPUT_DIRECTORY python/opm)
+  add_dependencies(opmcommon_python copy_python)
+
+  # Generate versioned setup.py
+  configure_file(${PROJECT_SOURCE_DIR}/python/setup.py.in
+                 ${PROJECT_BINARY_DIR}/python/setup.py.tmp)
+  file(GENERATE OUTPUT ${PROJECT_BINARY_DIR}/python/setup.py
+                INPUT ${PROJECT_BINARY_DIR}/python/setup.py.tmp)
+
   # Since the installation of Python code is nonstandard it is protected by an
   # extra cmake switch, OPM_INSTALL_PYTHON. If you prefer you can still invoke
   # setup.py install manually - optionally with the generated script
   # setup-install.sh - and completely bypass cmake in the installation phase.
-  if (OPM_INSTALL_PYTHON)
-    install( CODE "execute_process(COMMAND ${Python3_EXECUTABLE} ${PROJECT_BINARY_DIR}/python/install.py ${PROJECT_BINARY_DIR}/python/opm ${DEST_PREFIX}${CMAKE_INSTALL_PREFIX}/${PYTHON_INSTALL_PREFIX} 1)")
+  # If OPM_ENABLE_EMBEDDED_PYTHON is enabled, we also install opmcommon_python,
+  # to make it available in a Python console and for e.g. opm-simulators.
+  if (OPM_INSTALL_PYTHON OR OPM_ENABLE_EMBEDDED_PYTHON)
+      include(PyInstallPrefix)
+      install(TARGETS opmcommon_python DESTINATION ${DEST_PREFIX}${CMAKE_INSTALL_PREFIX}/${PYTHON_INSTALL_PREFIX}/opm)
+      if (OPM_INSTALL_PYTHON)
+        install(
+          CODE "execute_process(
+            COMMAND ${PYTHON_EXECUTABLE}
+                    python/install.py
+                    ${PROJECT_BINARY_DIR}/python/opm
+                    ${DEST_PREFIX}${CMAKE_INSTALL_PREFIX}/${PYTHON_INSTALL_PREFIX} 1)")
+      endif()
+      if (OPM_ENABLE_EMBEDDED_PYTHON)
+        install(
+          CODE "execute_process(
+            COMMAND ${PYTHON_EXECUTABLE}
+                    python/install.py
+                    ${PROJECT_BINARY_DIR}/python/opm_embedded
+                    ${DEST_PREFIX}${CMAKE_INSTALL_PREFIX}/${PYTHON_INSTALL_PREFIX} 1)")
+      endif()
+      ## Need to install this Python script such that it can be used by opm-simulators when building against an installed
+      ##  opm-common
+      install( PROGRAMS "python/install.py" DESTINATION "${OPM_PYTHON_COMMON_DIR}" )
+  endif()
+
+  if (OPM_ENABLE_PYTHON OR OPM_INSTALL_PYTHON) # if OPM_ENABLE_EMBEDDED_PYTHON is true, then OPM_ENABLE_PYTHON is also automatically true
     ## Need to install this Python script such that it can be used by opm-simulators when building against an installed
     ##  opm-common
-    install( PROGRAMS "python/install.py" DESTINATION "${OPM_PYTHON_COMMON_DIR}" )
+    install( PROGRAMS "python/generate_docstring_hpp.py" DESTINATION "${OPM_PYTHON_COMMON_DIR}" )
+    install( FILES "python/docstrings_common.json" DESTINATION "${OPM_PYTHON_COMMON_DIR}" )
   endif()
 
   # Observe that if the opmcommon library has been built as a shared library the
@@ -475,7 +500,7 @@ if (OPM_ENABLE_PYTHON)
   # testing.
   add_test(NAME python_tests
            WORKING_DIRECTORY ${PROJECT_BINARY_DIR}/python
-           COMMAND ${CMAKE_COMMAND} -E env LD_LIBRARY_PATH=${PROJECT_BINARY_DIR}/lib ${Python3_EXECUTABLE} setup.py build_ext --dry-run --build-lib ${PROJECT_BINARY_DIR}/python test
+           COMMAND ${CMAKE_COMMAND} -E env LD_LIBRARY_PATH=${PROJECT_BINARY_DIR}/lib ${Python3_EXECUTABLE} -m unittest discover
            )
 
   set_target_properties(opmcommon PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -486,11 +511,6 @@ if (OPM_ENABLE_PYTHON)
   # building, testing and installation of the Python extensions.
   configure_file(python/setup-build.sh.in tmp/setup-build.sh)
   file( COPY ${PROJECT_BINARY_DIR}/tmp/setup-build.sh
-        DESTINATION ${PROJECT_BINARY_DIR}
-        FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE )
-
-  configure_file(python/setup-package.sh.in tmp/setup-package.sh)
-  file( COPY ${PROJECT_BINARY_DIR}/tmp/setup-package.sh
         DESTINATION ${PROJECT_BINARY_DIR}
         FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE )
 

@@ -27,13 +27,9 @@
 #include <string>
 #include <vector>
 
-#include <opm/common/OpmLog/OpmLog.hpp>
-
-#include <opm/input/eclipse/Parser/InputErrorAction.hpp>
-
 namespace Opm {
 
-
+enum class InputErrorAction;
 class KeywordLocation;
 
 
@@ -88,28 +84,28 @@ class KeywordLocation;
     class ParseContext {
     public:
         ParseContext();
-        explicit ParseContext(InputError::Action default_action);
-        explicit ParseContext(const std::vector<std::pair<std::string , InputError::Action>>& initial);
+        explicit ParseContext(InputErrorAction default_action);
+        explicit ParseContext(const std::vector<std::pair<std::string , InputErrorAction>>& initial);
 
         void handleError( const std::string& errorKey, const std::string& msg, const std::optional<KeywordLocation>& location, ErrorGuard& errors)  const;
         void handleUnknownKeyword(const std::string& keyword, const std::optional<KeywordLocation>& location, ErrorGuard& errors) const;
         bool hasKey(const std::string& key) const;
-        ParseContext  withKey(const std::string& key, InputError::Action action = InputError::WARN) const;
-        ParseContext& withKey(const std::string& key, InputError::Action action = InputError::WARN);
-        void updateKey(const std::string& key , InputError::Action action);
-        void update(InputError::Action action);
-        void update(const std::string& keyString , InputError::Action action);
+        ParseContext  withKey(const std::string& key, InputErrorAction action) const;
+        ParseContext& withKey(const std::string& key, InputErrorAction action);
+        void updateKey(const std::string& key , InputErrorAction action);
+        void update(InputErrorAction action);
+        void update(const std::string& keyString , InputErrorAction action);
         void ignoreKeyword(const std::string& keyword);
-        InputError::Action get(const std::string& key) const;
-        std::map<std::string,InputError::Action>::const_iterator begin() const;
-        std::map<std::string,InputError::Action>::const_iterator end() const;
+        InputErrorAction get(const std::string& key) const;
+        std::map<std::string,InputErrorAction>::const_iterator begin() const;
+        std::map<std::string,InputErrorAction>::const_iterator end() const;
         /*
           When the key is added it is inserted in 'strict mode',
           i.e. with the value 'InputError::THROW_EXCEPTION. If you
           want a different value you must subsequently call the update
           method.
         */
-      void addKey(const std::string& key, InputError::Action default_action);
+      void addKey(const std::string& key, InputErrorAction default_action);
         /*
           The PARSE_EXTRA_RECORDS field regulates how the parser
           responds to keywords whose size has been defined in the
@@ -222,6 +218,18 @@ class KeywordLocation;
         /// RUNSPEC keyword WELLDIMS (item 4).
         const static std::string RUNSPEC_GROUPSIZE_TOO_LARGE;
 
+        /// Dynamic number of multi-segmented wells exceeds maximum declared
+        /// in RUNSPEC keyword WSEGDIMS (item 1).
+        const static std::string RUNSPEC_NUMMSW_TOO_LARGE;
+
+        /// Dynamic number of segments per MS well exceeds maximum declared
+        /// in RUNSPEC keyword WSEGDIMS (item 2).
+        const static std::string RUNSPEC_NUMSEG_PER_WELL_TOO_LARGE;
+
+        /// Dynamic number of branches exceeds maximum number declared in
+        /// RUNSPEC keyword WSEGDIMS (item 3).
+        const static std::string RUNSPEC_NUMBRANCH_TOO_LARGE;
+
         /*
           Should we allow keywords of length more than eight characters? If the
           keyword is too long it will be internalized using only the eight first
@@ -301,11 +309,20 @@ class KeywordLocation;
 
         /*
           Only keywords explicitly white-listed can be included in the ACTIONX
-          block. This error flag controls what should happen when an illegal
-          keyword is encountered in an ACTIONX block.
+          or PYACTION block. These error flags controls what should happen when
+          an illegal keyword is encountered in an ACTIONX and a PYACTION block.
          */
         const static std::string ACTIONX_ILLEGAL_KEYWORD;
+        const static std::string PYACTION_ILLEGAL_KEYWORD;
 
+        /*
+          Error flag marking parser errors ic ACTIONX conditions
+         */
+        const static std::string ACTIONX_CONDITION_ERROR;
+        /*
+          Error flag marking that an ACTIONX has no condition
+         */
+        const static std::string ACTIONX_NO_CONDITION;
 
         /*
           The RPTSCH, RPTSOL and RPTSCHED keywords have two alternative forms,
@@ -343,10 +360,12 @@ class KeywordLocation;
 
         const static std::string SCHEDULE_GROUP_ERROR;
         const static std::string SCHEDULE_IGNORED_GUIDE_RATE;
+        const static std::string SCHEDULE_WELL_IN_FIELD_GROUP;
 
         const static std::string SCHEDULE_COMPSEGS_INVALID;
         const static std::string SCHEDULE_COMPSEGS_NOT_SUPPORTED;
 
+        const static std::string SCHEDULE_COMPDAT_INVALID;
         /*
           The SIMULATOR_KEYWORD_ errormodes are for the situation where the
           parser recognizes, and correctly parses a keyword, but we know that
@@ -358,14 +377,18 @@ class KeywordLocation;
         const static std::string SIMULATOR_KEYWORD_ITEM_NOT_SUPPORTED;
         const static std::string SIMULATOR_KEYWORD_ITEM_NOT_SUPPORTED_CRITICAL;
 
+        void setInputSkipMode(const std::string& skip_mode);
+        bool isActiveSkipKeyword(const std::string& deck_name) const;
+
     private:
         void initDefault();
         void initEnv();
-        void envUpdate( const std::string& envVariable , InputError::Action action );
-        void patternUpdate( const std::string& pattern , InputError::Action action);
+        void envUpdate( const std::string& envVariable , InputErrorAction action );
+        void patternUpdate( const std::string& pattern , InputErrorAction action);
 
-        std::map<std::string , InputError::Action> m_errorContexts;
+        std::map<std::string , InputErrorAction> m_errorContexts;
         std::set<std::string> ignore_keywords;
+        std::string m_input_skip_mode{"100"};
     };
 }
 

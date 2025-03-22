@@ -163,15 +163,15 @@ struct Options {
 
 
 Opm::Deck load_deck(const Options& opt) {
-    Opm::ParseContext parseContext(Opm::InputError::WARN);
+    Opm::ParseContext parseContext(Opm::InputErrorAction::WARN);
     Opm::ErrorGuard errors;
     Opm::Parser parser;
 
     /* Use the same default ParseContext as flow. */
-    parseContext.update(Opm::ParseContext::PARSE_RANDOM_SLASH, Opm::InputError::IGNORE);
-    parseContext.update(Opm::ParseContext::PARSE_MISSING_DIMS_KEYWORD, Opm::InputError::WARN);
-    parseContext.update(Opm::ParseContext::SUMMARY_UNKNOWN_WELL, Opm::InputError::WARN);
-    parseContext.update(Opm::ParseContext::SUMMARY_UNKNOWN_GROUP, Opm::InputError::WARN);
+    parseContext.update(Opm::ParseContext::PARSE_RANDOM_SLASH, Opm::InputErrorAction::IGNORE);
+    parseContext.update(Opm::ParseContext::PARSE_MISSING_DIMS_KEYWORD, Opm::InputErrorAction::WARN);
+    parseContext.update(Opm::ParseContext::SUMMARY_UNKNOWN_WELL, Opm::InputErrorAction::WARN);
+    parseContext.update(Opm::ParseContext::SUMMARY_UNKNOWN_GROUP, Opm::InputErrorAction::WARN);
     return parser.parseFile(opt.input_deck, parseContext, errors);
 }
 
@@ -203,11 +203,9 @@ std::optional<std::size_t> verify_extension(const std::string& extension, bool u
         print_help_and_exit("Deck has expected unformatted unified input - expected restart extension: .UNRST");
     }
 
-    std::size_t report_step;
     if ((formatted && (extension[1] == 'F')) || (!formatted && (extension[1] == 'X'))) {
         try {
-            report_step = std::stoi(extension.substr(2));
-            return report_step;
+            return std::stoi(extension.substr(2));
         }
         catch (...) {}
     }

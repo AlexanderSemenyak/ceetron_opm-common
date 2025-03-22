@@ -17,6 +17,9 @@ DIMENS
 REGDIMS
   10 /
 
+NETWORK
+  3 2 /
+
 WELLDIMS
 -- Item 1: NWMAX  (Maximum number of wells in model)
 -- Item 2: NCWMAX (Maximum number of connections per well)
@@ -35,6 +38,10 @@ WATER
 
 UNIFIN
 UNIFOUT
+
+UDQPARAM
+-- Undefined => 0.1729 (default = 0.0)
+ 2* 0.1729 /
 
 GRID
 
@@ -157,6 +164,8 @@ FOIP
 FOIPL
 FGIP
 FGIPG
+-- Volumes
+FHPV
 -- Ratios
 FWCT
 FWCTH
@@ -176,6 +185,8 @@ FWPI
 
 -- Pressures
 FPR
+FPRH
+FPRP
 
 BPR
   1  1  1 /
@@ -195,12 +206,23 @@ BSGAS
   1  1  1 /
 /
 
-
 BSWAT
   1  1  1 /
 /
 
 BOSAT
+  1  1  1 /
+/
+
+BDENG
+  1  1  1 /
+/
+
+BDENW
+  1  1  1 /
+/
+
+BODEN
   1  1  1 /
 /
 
@@ -270,6 +292,8 @@ BOVIS
 
 --  Region data
 RPR
+/
+RPRH
 /
 ROPT
 /
@@ -539,6 +563,14 @@ WWPRH
 /
 WOPR
 /
+-- filtrate related
+WINJFVR
+/
+WINJFVT
+/
+WINJFC
+/
+
 WGVPR
  W_1 W_2 /
 WOPRH
@@ -620,7 +652,7 @@ WNIT
 WTIRSEA
 /
 
--- Production Cummulatives
+-- Production Cumulatives
 WWPT
 /
 WWPTH
@@ -646,7 +678,7 @@ WOPTS
 -- Tracers
 WTPTSEA
 /
--- Injection Cummulatives
+-- Injection Cumulatives
 WWIT
   W_3
 /
@@ -659,6 +691,10 @@ WGOR
 /
 WGORH
 /
+WOGR
+/
+WWGRH
+/
 WGLR
 /
 WGLRH
@@ -669,10 +705,39 @@ WTITSEA
 WTICSEA
 /
 
+-- Targets/limits
+WBHPT
+W_1 W_2 W_3 W_6 /
+WOPRT
+W_1 W_2 W_3 W_6 /
+WGPRT
+W_1 W_2 W_3 W_6 /
+WLPRT
+W_1 W_2 W_3 W_6 /
+WVPRT
+W_1 W_2 W_3 W_6 /
+WWPRT
+W_1 W_2 W_3 W_6 /
+WOIRT
+W_1 W_2 W_3 W_6 /
+WGIRT
+W_1 W_2 W_3 W_6 /
+WVIRT
+W_1 W_2 W_3 W_6 /
+WWIRT
+W_1 W_2 W_3 W_6 /
 
 -- Performance
 WBHP
 /
+WBP
+ 'W_1' 'W_2' /
+WBP4
+ 'W_1' /
+WBP5
+ 'W_1' /
+WBP9
+ 'W_1' /
 WBHPH
 /
 WTHP
@@ -689,11 +754,14 @@ WPIW
 /
 WPIL
 /
-WBP
-/
-WBP4
-/
-
+WPI1
+ 'W_1' 'W_2' /
+WPI4
+ 'W_1' /
+WPI5
+ 'W_1' /
+WPI9
+ 'W_1' /
 -- from model2
 WOPTF
 /
@@ -718,8 +786,6 @@ WGLIR
 WVPR
 /
 WVPT
-/
-WVPRT
 /
 WOPP
 /
@@ -830,6 +896,24 @@ CGPR
  '*' /
 /
 
+CGFRF
+ '*' /
+/
+
+CGFRS
+ '*' /
+/
+
+COFRF
+ '*' /
+/
+
+COFRS
+ '*' /
+/
+
+
+
 CNFR
  '*' /
 /
@@ -905,6 +989,48 @@ CTFAC
  'W_1' /
  'W_2' /
  'W_3' /
+/
+
+
+CINJFVR
+ 'W_1' /
+ 'W_2' /
+ 'W_3' /
+/
+CINJFVT
+ W_1 /
+ W_2 /
+ W_3 /
+/
+CFCSKIN
+ W_1 /
+ W_2 /
+ W_3 /
+/
+CFCWIDTH
+ W_1 /
+ W_2 /
+ W_3 /
+/
+CFCPERM
+ W_1 /
+ W_2 /
+ W_3 /
+/
+CFCPORO
+ W_1 /
+ W_2 /
+ W_3 /
+/
+CFCRAD
+ W_1 /
+ W_2 /
+ W_3 /
+/
+CFCAOF
+ W_1 /
+ W_2 /
+ W_3 /
 /
 
 ---- Connection production rates

@@ -15,37 +15,64 @@
 
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
- */
+*/
 
 #define BOOST_TEST_MODULE ParserKeywordsIntegrationTests
 #include <boost/test/unit_test.hpp>
 
+#include <boost/version.hpp>
+
 #include <opm/common/utility/OpmInputError.hpp>
-#include <opm/input/eclipse/Deck/Deck.hpp>
-#include <opm/input/eclipse/Python/Python.hpp>
+
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/FieldPropsManager.hpp>
 #include <opm/input/eclipse/EclipseState/Runspec.hpp>
-#include <opm/input/eclipse/Schedule/Schedule.hpp>
-#include <opm/input/eclipse/Schedule/SummaryState.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/SgofTable.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/SlgofTable.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/SwofTable.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/TlpmixpaTable.hpp>
-#include <opm/input/eclipse/Parser/Parser.hpp>
+
+#include <opm/input/eclipse/Python/Python.hpp>
+
+#include <opm/input/eclipse/Schedule/MSW/WellSegments.hpp>
+#include <opm/input/eclipse/Schedule/Schedule.hpp>
+#include <opm/input/eclipse/Schedule/SummaryState.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellConnections.hpp>
 #include <opm/input/eclipse/Units/Units.hpp>
-#include <opm/input/eclipse/Parser/ParseContext.hpp>
-#include <opm/input/eclipse/Parser/ErrorGuard.hpp>
+
 #include <opm/common/utility/TimeService.hpp>
+
+#include <opm/input/eclipse/Deck/Deck.hpp>
+
+#include <opm/input/eclipse/Parser/ErrorGuard.hpp>
+#include <opm/input/eclipse/Parser/InputErrorAction.hpp>
+#include <opm/input/eclipse/Parser/ParseContext.hpp>
+#include <opm/input/eclipse/Parser/Parser.hpp>
+
+#include <cstddef>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 using namespace Opm;
 
-inline std::string pathprefix() {
+namespace {
+
+std::string pathprefix()
+{
+#if BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 < 71
+    return boost::unit_test::framework::master_test_suite().argv[2];
+#else
     return boost::unit_test::framework::master_test_suite().argv[1];
+#endif
 }
 
+} // Anonymous namespace
+
 BOOST_AUTO_TEST_CASE( debug ) {
-    Parser().parseFile( pathprefix() + "DEBUG/DEBUG.DATA" );
+    Parser{}.parseFile(pathprefix() + "DEBUG/DEBUG.DATA" );
 }
 
 BOOST_AUTO_TEST_CASE( CECON ) {
@@ -55,7 +82,7 @@ CECON
         'P*'  2* 2 2 1* 3.5 /
 /
         )";
-    Parser().parseString( input );
+    Parser{}.parseString( input );
 }
 
 BOOST_AUTO_TEST_CASE( COORDSYS ) {
@@ -128,7 +155,7 @@ BOOST_AUTO_TEST_CASE( EQUIL_MISSING_DIMS ) {
     Parser parser;
     ErrorGuard errors;
     ParseContext parseContext;
-    parseContext.update(ParseContext::PARSE_MISSING_DIMS_KEYWORD, InputError::IGNORE);
+    parseContext.update(ParseContext::PARSE_MISSING_DIMS_KEYWORD, InputErrorAction::IGNORE);
     const std::string equil = "EQUIL\n"
         "2469   382.4   1705.0  0.0    500    0.0     1     1      20 /";
     auto deck = parser.parseString(equil, parseContext, errors);
@@ -215,14 +242,13 @@ SGCWMIS
 
 BOOST_AUTO_TEST_CASE( SORWMIS ) {
 
-    Parser parser;
-    // missing miscible keyword
-    BOOST_CHECK_THROW (parser.parseString(sorwmisData), OpmInputError );
+    // Missing miscible keyword
+    BOOST_CHECK_THROW(Parser{}.parseString(sorwmisData), OpmInputError);
 
-    //too many tables
-    BOOST_CHECK_THROW( parser.parseString(miscibleTightData + sorwmisData), OpmInputError);
+    // Too many tables
+    BOOST_CHECK_THROW(Parser{}.parseString(miscibleTightData + sorwmisData), OpmInputError);
 
-    auto deck1 =  parser.parseString(miscibleData + sorwmisData);
+    const auto deck1 = Parser{}.parseString(miscibleData + sorwmisData);
 
     const auto& sorwmis = deck1["SORWMIS"].back();
     const auto& miscible = deck1["MISCIBLE"].back();
@@ -232,9 +258,9 @@ BOOST_AUTO_TEST_CASE( SORWMIS ) {
     const auto& sorwmis1 = sorwmis.getRecord(1);
 
     // test number of columns
-    size_t ntmisc = miscible0.getItem(0).get< int >(0);
-    Opm::SorwmisTable sorwmisTable0(sorwmis0.getItem(0), 0);
-    BOOST_CHECK_EQUAL(sorwmisTable0.numColumns(),ntmisc);
+    const std::size_t ntmisc = miscible0.getItem(0).get<int>(0);
+    const Opm::SorwmisTable sorwmisTable0(sorwmis0.getItem(0), 0);
+    BOOST_CHECK_EQUAL(sorwmisTable0.numColumns(), ntmisc);
 
     // test table input 1
     BOOST_CHECK_EQUAL(3U, sorwmisTable0.getWaterSaturationColumn().size());
@@ -242,7 +268,7 @@ BOOST_AUTO_TEST_CASE( SORWMIS ) {
     BOOST_CHECK_EQUAL(0.0, sorwmisTable0.getMiscibleResidualOilColumn()[2]);
 
     // test table input 2
-    Opm::SorwmisTable sorwmisTable1(sorwmis1.getItem(0), 1);
+    const Opm::SorwmisTable sorwmisTable1(sorwmis1.getItem(0), 1);
     BOOST_CHECK_EQUAL(sorwmisTable1.numColumns(),ntmisc);
 
     BOOST_CHECK_EQUAL(3U, sorwmisTable1.getWaterSaturationColumn().size());
@@ -465,8 +491,8 @@ BOOST_AUTO_TEST_CASE( MULTISEGMENT_ABS ) {
         const auto& rec1 = kw.getRecord(0); // top segment
 
         const std::string well_name = rec1.getItem("WELL").getTrimmedString(0);
-        const double depth_top = rec1.getItem("DEPTH").get< double >(0);
-        const double length_top = rec1.getItem("LENGTH").get< double >(0);
+        const double depth_top = rec1.getItem("TOP_DEPTH").get< double >(0);
+        const double length_top = rec1.getItem("TOP_LENGTH").get< double >(0);
         const double volume_top = rec1.getItem("WELLBORE_VOLUME").get< double >(0);
         const WellSegments::LengthDepth length_depth_type = WellSegments::LengthDepthFromString(rec1.getItem("INFO_TYPE").getTrimmedString(0));
         const WellSegments::CompPressureDrop comp_pressure_drop = WellSegments::CompPressureDropFromString(rec1.getItem("PRESSURE_COMPONENTS").getTrimmedString(0));
@@ -494,8 +520,8 @@ BOOST_AUTO_TEST_CASE( MULTISEGMENT_ABS ) {
         BOOST_CHECK_EQUAL( 2, segment2 );
         const int branch = rec2.getItem("BRANCH").get< int >(0);
         const int outlet_segment = rec2.getItem("JOIN_SEGMENT").get< int >(0);
-        const double segment_length = rec2.getItem("SEGMENT_LENGTH").get< double >(0);
-        const double depth_change = rec2.getItem("DEPTH_CHANGE").get< double >(0);
+        const double segment_length = rec2.getItem("LENGTH").get< double >(0);
+        const double depth_change = rec2.getItem("DEPTH").get< double >(0);
         const double diameter = rec2.getItem("DIAMETER").get< double >(0);
         const double roughness = rec2.getItem("ROUGHNESS").get< double >(0);
         BOOST_CHECK_EQUAL( 1, branch );
@@ -514,8 +540,8 @@ BOOST_AUTO_TEST_CASE( MULTISEGMENT_ABS ) {
         BOOST_CHECK_EQUAL( 6, segment2 );
         const int branch = rec6.getItem("BRANCH").get< int >(0);
         const int outlet_segment = rec6.getItem("JOIN_SEGMENT").get< int >(0);
-        const double segment_length = rec6.getItem("SEGMENT_LENGTH").get< double >(0);
-        const double depth_change = rec6.getItem("DEPTH_CHANGE").get< double >(0);
+        const double segment_length = rec6.getItem("LENGTH").get< double >(0);
+        const double depth_change = rec6.getItem("DEPTH").get< double >(0);
         const double diameter = rec6.getItem("DIAMETER").get< double >(0);
         const double roughness = rec6.getItem("ROUGHNESS").get< double >(0);
         BOOST_CHECK_EQUAL( 2, branch );
@@ -534,8 +560,8 @@ BOOST_AUTO_TEST_CASE( MULTISEGMENT_ABS ) {
         BOOST_CHECK_EQUAL( 8, segment2 );
         const int branch = rec7.getItem("BRANCH").get< int >(0);
         const int outlet_segment = rec7.getItem("JOIN_SEGMENT").get< int >(0);
-        const double segment_length = rec7.getItem("SEGMENT_LENGTH").get< double >(0);
-        const double depth_change = rec7.getItem("DEPTH_CHANGE").get< double >(0);
+        const double segment_length = rec7.getItem("LENGTH").get< double >(0);
+        const double depth_change = rec7.getItem("DEPTH").get< double >(0);
         const double diameter = rec7.getItem("DIAMETER").get< double >(0);
         const double roughness = rec7.getItem("ROUGHNESS").get< double >(0);
         BOOST_CHECK_EQUAL( 3, branch );
@@ -1401,9 +1427,9 @@ BOOST_AUTO_TEST_CASE( WCONPROD ) {
     {
         const auto& well0 = sched.getWell("PROD3", 0 );
         const auto& well1 = sched.getWell("PROD3", 1 );
-        BOOST_CHECK_CLOSE(0   , well0.getProductionProperties().OilRate.get<double>(), 0.001);
+        BOOST_CHECK_THROW(well0.getProductionProperties().OilRate.get<double>(), std::invalid_argument);
         BOOST_CHECK_CLOSE(1500, well1.getProductionProperties().OilRate.get<double>(), 0.001);
-        BOOST_CHECK_CLOSE(0/Metric::Time   , well0.getProductionProperties().OilRate.getSI(), 0.001);
+        BOOST_CHECK_THROW(well0.getProductionProperties().OilRate.getSI(), std::invalid_argument);
         BOOST_CHECK_CLOSE(1500/Metric::Time, well1.getProductionProperties().OilRate.getSI(), 0.001);
     }
 
@@ -1418,17 +1444,16 @@ BOOST_AUTO_TEST_CASE( WCONPROD ) {
 }
 
 
-BOOST_AUTO_TEST_CASE( WCONINJE ) {
-    Parser parser;
-    std::string wconprodFile(pathprefix() + "WellWithWildcards/WCONINJE1");
-    auto deck = parser.parseFile(wconprodFile);
-    auto python = std::make_shared<Python>();
+BOOST_AUTO_TEST_CASE( WCONINJE )
+{
+    const std::string wconprodFile(pathprefix() + "WellWithWildcards/WCONINJE1");
+    const auto deck = Parser{}.parseFile(wconprodFile);
     EclipseGrid grid(30,30,30);
-    TableManager table ( deck );
-    FieldPropsManager fp(deck, Phases{true, true, true}, grid, table);
-    Runspec runspec (deck);
-    Schedule sched( deck, grid, fp, runspec, python);
-    SummaryState st(TimeService::now());
+    const TableManager table (deck);
+    const FieldPropsManager fp(deck, Phases{true, true, true}, grid, table);
+    const Runspec runspec(deck);
+    const Schedule sched(deck, grid, fp, runspec, std::make_shared<Python>());
+    SummaryState st(TimeService::now(), runspec.udqParams().undefinedValue());
 
     BOOST_CHECK_EQUAL(5U, sched.numWells());
     BOOST_CHECK(sched.hasWell("PROD1"));

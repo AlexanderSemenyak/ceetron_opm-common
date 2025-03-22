@@ -15,12 +15,37 @@
 
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
- */
+*/
 
 #include "config.h"
 
 #define BOOST_TEST_MODULE Wells
 #include <boost/test/unit_test.hpp>
+
+#include <opm/output/data/Wells.hpp>
+#include <opm/output/data/Groups.hpp>
+#include <opm/output/eclipse/Summary.hpp>
+#include <opm/output/eclipse/Inplace.hpp>
+
+#include <opm/input/eclipse/EclipseState/EclipseState.hpp>
+#include <opm/input/eclipse/EclipseState/Grid/EclipseGrid.hpp>
+#include <opm/input/eclipse/EclipseState/SummaryConfig/SummaryConfig.hpp>
+
+#include <opm/input/eclipse/Python/Python.hpp>
+
+#include <opm/input/eclipse/Schedule/Schedule.hpp>
+#include <opm/input/eclipse/Schedule/SummaryState.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
+#include <opm/input/eclipse/Units/UnitSystem.hpp>
+
+#include <opm/input/eclipse/Units/Units.hpp>
+
+#include <opm/common/utility/TimeService.hpp>
+
+#include <opm/io/eclipse/ESmry.hpp>
+
+#include <opm/input/eclipse/Deck/Deck.hpp>
+#include <opm/input/eclipse/Parser/Parser.hpp>
 
 #include <cctype>
 #include <chrono>
@@ -34,26 +59,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include <opm/output/data/Wells.hpp>
-#include <opm/output/data/Groups.hpp>
-#include <opm/output/eclipse/Summary.hpp>
-#include <opm/output/eclipse/Inplace.hpp>
-
-#include <opm/input/eclipse/Python/Python.hpp>
-#include <opm/input/eclipse/Schedule/SummaryState.hpp>
-#include <opm/input/eclipse/Deck/Deck.hpp>
-#include <opm/input/eclipse/Units/UnitSystem.hpp>
-#include <opm/input/eclipse/EclipseState/Grid/EclipseGrid.hpp>
-#include <opm/input/eclipse/EclipseState/EclipseState.hpp>
-#include <opm/input/eclipse/Schedule/Schedule.hpp>
-#include <opm/input/eclipse/EclipseState/SummaryConfig/SummaryConfig.hpp>
-#include <opm/input/eclipse/Parser/Parser.hpp>
-#include <opm/common/utility/TimeService.hpp>
-
-#include <opm/input/eclipse/Units/Units.hpp>
-
-#include <opm/io/eclipse/ESmry.hpp>
-
 #include <tests/WorkArea.hpp>
 
 using namespace Opm;
@@ -62,7 +67,7 @@ using rt = data::Rates::opt;
 namespace {
     double sm3_pr_day()
     {
-       return unit::cubic(unit::meter) / unit::day;
+        return unit::cubic(unit::meter) / unit::day;
     }
 
     std::string toupper(std::string input)
@@ -75,41 +80,42 @@ namespace {
         return input;
     }
 
-    bool ecl_sum_has_group_var( const EclIO::ESmry* smry,
-                           const std::string&  groupname,
-                           const std::string&  variable )
+    bool ecl_sum_has_group_var(const EclIO::ESmry* smry,
+                               const std::string&  groupname,
+                               const std::string&  variable)
     {
         return smry->hasKey(variable + ':' + groupname);
     }
 
-    double ecl_sum_get_group_var( const EclIO::ESmry* smry,
-                              const int           timeIdx,
-                              const std::string&  groupname,
-                              const std::string&  variable )
+    double ecl_sum_get_group_var(const EclIO::ESmry* smry,
+                                 const int           timeIdx,
+                                 const std::string&  groupname,
+                                 const std::string&  variable)
     {
         return smry->get(variable + ':' + groupname)[timeIdx];
     }
 
-} // Anonymous
-
-
+} // Anonymous namespace
 
 namespace {
-/* conversion factor for whenever 'day' is the unit of measure, whereas we
- * expect input in SI units (seconds)
- */
 
-std::unique_ptr< EclIO::ESmry > readsum( const std::string& base ) {
+std::unique_ptr<EclIO::ESmry> readsum(const std::string& base)
+{
     return std::make_unique<EclIO::ESmry>(base);
 }
 
 using p_cmode = Opm::Group::ProductionCMode;
 using i_cmode = Opm::Group::InjectionCMode;
 
+/*
+ * conversion factor for whenever 'day' is the unit of measure, whereas we
+ * expect input in SI units (seconds)
+ */
 static const int day = 24 * 60 * 60;
 
-static data::Wells result_wells() {
-        /* populate with the following pattern:
+data::Wells result_wells()
+{
+    /* populate with the following pattern:
      *
      * Wells are named W_1, W_2 etc, i.e. wells are 1 indexed.
      *
@@ -170,13 +176,16 @@ static data::Wells result_wells() {
       syncronized with the global index in the COMPDAT keyword in the
       input deck.
     */
-    data::Connection well1_comp1 { 0  , crates1, 1.9 , 123.4, 314.15, 0.35, 0.25, 2.718e2, 0.12345};
+    data::ConnectionFiltrate con_filtrate {0.1, 1, 3, 0.4, 1.e-9, 0.2, 0.05, 10.}; // values are not tested in this test
+    data::Connection well1_comp1 { 0, crates1, 1.9, 123.4, 314.15, 0.35, 0.25, 2.718e2, 0.12345, 0.0, 1.23, con_filtrate };
 
     /*
       The completions
     */
+    data::WellFiltrate well_filtrate {0.1, 1., 0.3}; // values are not tested in this test
     data::Well well1 {
-        rates1, 0.1 * ps, 0.2 * ps, 0.3 * ps, 1,
+        rates1, 0.1 * ps, 0.2 * ps, 0.3 * ps, 1, 1.0,
+        well_filtrate,
         ::Opm::Well::Status::OPEN,
         { {well1_comp1} },
         { { segment.segNumber, segment } },
@@ -193,7 +202,8 @@ static data::Wells result_wells() {
 
 }
 
-static data::GroupAndNetworkValues result_group_network() {
+data::GroupAndNetworkValues result_group_network()
+{
     data::GroupAndNetworkValues grp_nwrk;
     data::GroupConstraints cgc_group;
 
@@ -212,34 +222,35 @@ static data::GroupAndNetworkValues result_group_network() {
     return grp_nwrk;
 }
 
-
-struct setup {
+struct setup
+{
     Deck deck;
     EclipseState es;
     const EclipseGrid& grid;
-    std::shared_ptr<Python> python;
     Schedule schedule;
     SummaryConfig config;
     data::Wells wells;
+    data::WellBlockAveragePressures wbp;
     data::GroupAndNetworkValues grp_nwrk;
     std::string name;
     WorkArea ta;
 
-    /*-----------------------------------------------------------------*/
+    // ------------------------------------------------------------------------
 
-    setup(std::string fname, const std::string& path = "UDQ_ACTIONX_TEST1_U.DATA") :
-        deck( Parser().parseFile( path) ),
-        es( deck ),
-        grid( es.getInputGrid() ),
-        python( std::make_shared<Python>() ),
-        schedule( deck, es, python),
-        config( deck, schedule, es.fieldProps(), es.aquifer() ),
-        wells( result_wells() ),
-        grp_nwrk( result_group_network() ),
-        name( toupper(std::move(fname)) ),
-        ta( "test_summary_group_constraints" )
+    explicit setup(std::string        case_name,
+                   const std::string& path = "UDQ_ACTIONX_TEST1_U.DATA")
+        : deck     { Parser{}.parseFile(path) }
+        , es       { deck }
+        , grid     { es.getInputGrid() }
+        , schedule { deck, es, std::make_shared<Python>() }
+        , config   { deck, schedule, es.fieldProps(), es.aquifer() }
+        , wells    { result_wells() }
+        , wbp      {}
+        , grp_nwrk { result_group_network() }
+        , name     { toupper(std::move(case_name)) }
+        , ta       { "test_summary_group_constraints" }
     {}
-    };
+};
 } // Anonymous namespace
 
 // =====================================================================
@@ -249,7 +260,8 @@ BOOST_AUTO_TEST_SUITE(Summary)
  * Tests works by reading the Deck, write the summary output, then immediately
  * read it again (with ERT), and compare the read values with the input.
  */
-BOOST_AUTO_TEST_CASE(group_keywords) {
+BOOST_AUTO_TEST_CASE(group_keywords)
+{
     setup cfg( "test_summary_group_constraints");
 
     // Force to run in a directory, to make sure the basename with
@@ -257,13 +269,13 @@ BOOST_AUTO_TEST_CASE(group_keywords) {
     cfg.ta.makeSubDir( "PATH" );
     cfg.name = "PATH/CASE";
 
-    SummaryState st(TimeService::now());
+    SummaryState st(TimeService::now(), 0.0);
 
-    out::Summary writer( cfg.es, cfg.config, cfg.grid, cfg.schedule , cfg.name );
-    writer.eval(st, 0, 0*day, cfg.wells, cfg.grp_nwrk, {}, {}, {}, {});
+    out::Summary writer(cfg.config, cfg.es, cfg.grid, cfg.schedule, cfg.name);
+    writer.eval(st, 0, 0*day, cfg.wells, cfg.wbp, cfg.grp_nwrk, {}, {}, {}, {});
     writer.add_timestep( st, 0, false);
 
-    writer.eval(st, 1, 1*day, cfg.wells, cfg.grp_nwrk, {}, {}, {}, {});
+    writer.eval(st, 1, 1*day, cfg.wells, cfg.wbp, cfg.grp_nwrk, {}, {}, {}, {});
     writer.add_timestep( st, 1, false);
 
     writer.write();
@@ -274,7 +286,6 @@ BOOST_AUTO_TEST_CASE(group_keywords) {
     //BOOST_CHECK( ecl_sum_has_report_step( resp, 1 ) );
     BOOST_CHECK( ecl_sum_has_group_var( resp, "TEST", "GMCTP" ) );
 
-
     // Integer flag indicating current active group control
     BOOST_CHECK_EQUAL( static_cast<int>(ecl_sum_get_group_var( resp, 1, "TEST", "GMCTP" )), 0 );
     BOOST_CHECK_EQUAL( static_cast<int>(ecl_sum_get_group_var( resp, 1, "LOWER", "GMCTW" )), 3 );
@@ -283,8 +294,6 @@ BOOST_AUTO_TEST_CASE(group_keywords) {
     BOOST_CHECK_EQUAL( static_cast<int>(ecl_sum_get_group_var( resp, 1, "UPPER", "GMCTP" )), 3 );
     BOOST_CHECK_EQUAL( static_cast<int>(ecl_sum_get_group_var( resp, 1, "UPPER", "GMCTW" )), 4 );
     BOOST_CHECK_EQUAL( static_cast<int>(ecl_sum_get_group_var( resp, 1, "UPPER", "GMCTG" )), 3 );
-
-
 }
 
 BOOST_AUTO_TEST_SUITE_END()

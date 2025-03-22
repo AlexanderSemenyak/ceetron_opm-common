@@ -1,21 +1,23 @@
 #ifndef ISIM_MAIN_HPP
 #define ISIM_MAIN_HPP
 
-#include <chrono>
-#include <functional>
-#include <map>
-#include <string>
-
-#include <opm/input/eclipse/Schedule/SummaryState.hpp>
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
-#include <opm/input/eclipse/Schedule/Schedule.hpp>
 #include <opm/input/eclipse/Schedule/Action/State.hpp>
+#include <opm/input/eclipse/Schedule/Schedule.hpp>
+#include <opm/input/eclipse/Schedule/SummaryState.hpp>
+#include <opm/input/eclipse/Python/Python.hpp>
 
 #include <opm/output/data/Solution.hpp>
 #include <opm/output/data/Wells.hpp>
 #include <opm/output/data/Groups.hpp>
+
 #include <opm/input/eclipse/Deck/UDAValue.hpp>
 
+#include <chrono>
+#include <functional>
+#include <map>
+#include <string>
+#include <memory>
 
 namespace Opm {
 
@@ -42,10 +44,27 @@ public:
     void post_step(data::Solution& sol, data::Wells& well_data, data::GroupAndNetworkValues& group_nwrk_data, size_t report_step, const time_point& sim_time);
 
 private:
+    void run_step(const WellTestState& wtest_state,
+                  UDQState& udq_state,
+                  data::Solution& sol,
+                  data::Wells& well_data,
+                  data::GroupAndNetworkValues& group_nwrk_data,
+                  size_t report_step,
+                  EclipseIO& io);
 
-    void run_step(WellTestState& wtest_state, UDQState& udq_state, data::Solution& sol, data::Wells& well_data, data::GroupAndNetworkValues& group_nwrk_data, size_t report_step, EclipseIO& io);
-    void run_step(WellTestState& wtest_state, UDQState& udq_state, data::Solution& sol, data::Wells& well_data, data::GroupAndNetworkValues& group_nwrk_data, size_t report_step, double dt, EclipseIO& io);
-    void output(WellTestState& wtest_state, const UDQState& udq_state, size_t report_step, bool substep, double seconds_elapsed, const data::Solution& sol, const data::Wells& well_data, const data::GroupAndNetworkValues& group_data, EclipseIO& io);
+    void run_step(const WellTestState& wtest_state,
+                  UDQState& udq_state,
+                  data::Solution& sol,
+                  data::Wells& well_data,
+                  data::GroupAndNetworkValues& group_nwrk_data,
+                  size_t report_step,
+                  double dt,
+                  EclipseIO& io);
+
+    void output(const WellTestState& wtest_state, const UDQState& udq_state,
+                size_t report_step, bool substep, double seconds_elapsed,
+                const data::Solution& sol, const data::Wells& well_data,
+                const data::GroupAndNetworkValues& group_data, EclipseIO& io);
     void simulate(data::Solution& sol, data::Wells& well_data, data::GroupAndNetworkValues& group_nwrk_data, size_t report_step, double seconds_elapsed, double time_step);
 
     EclipseState state;
@@ -56,8 +75,9 @@ public:
     Schedule schedule;
     Action::State action_state;
     SummaryState st;
+    static std::shared_ptr<Python> python;
 };
-}
 
+} // namespace Opm
 
-#endif
+#endif // ISIM_MAIN_HPP

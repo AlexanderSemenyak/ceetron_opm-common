@@ -1,28 +1,30 @@
 /*
-Copyright 2016 Statoil ASA.
+  Copyright 2016 Statoil ASA.
 
-This file is part of the Open Porous Media project (OPM).
+  This file is part of the Open Porous Media project (OPM).
 
-OPM is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+  OPM is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
 
-OPM is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+  OPM is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with OPM.  If not, see <http://www.gnu.org/licenses/>.
+  You should have received a copy of the GNU General Public License
+  along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #define BOOST_TEST_MODULE RunspecTests
 
 #include <boost/test/unit_test.hpp>
 
-#include <opm/input/eclipse/Deck/Deck.hpp>
 #include <opm/input/eclipse/EclipseState/Runspec.hpp>
+
+#include <opm/input/eclipse/Deck/Deck.hpp>
+
 #include <opm/input/eclipse/Parser/Parser.hpp>
 #include <opm/input/eclipse/Parser/ParserKeywords/N.hpp>
 #include <opm/input/eclipse/Parser/ParserKeywords/M.hpp>
@@ -1029,6 +1031,64 @@ BOOST_AUTO_TEST_CASE(Co2Storage) {
 
 }
 
+BOOST_AUTO_TEST_CASE(Co2Storage_watergas) {
+    const std::string input = R"(
+    RUNSPEC
+    WATER
+    GAS
+    CO2STORE
+    )";
+
+    Parser parser;
+
+    auto deck = parser.parseString(input);
+
+    Runspec runspec( deck );
+    const auto& phases = runspec.phases();
+    BOOST_CHECK_EQUAL( 2U, phases.size() );
+    BOOST_CHECK( phases.active( Phase::WATER ) );
+    BOOST_CHECK( phases.active( Phase::GAS ) );
+    BOOST_CHECK( runspec.co2Storage() );
+
+
+}
+
+BOOST_AUTO_TEST_CASE(Co2Storage_oilwater) {
+    const std::string input = R"(
+    RUNSPEC
+    OIL
+    WATER
+    CO2STORE
+    )";
+
+    Parser parser;
+
+    auto deck = parser.parseString(input);
+    BOOST_CHECK_THROW( Runspec{deck}, std::runtime_error );
+}
+
+BOOST_AUTO_TEST_CASE(H2Storage) {
+    const std::string input = R"(
+    RUNSPEC
+    OIL
+    GAS
+    H2STORE
+    )";
+
+    Parser parser;
+
+    auto deck = parser.parseString(input);
+
+    Runspec runspec( deck );
+    const auto& phases = runspec.phases();
+    BOOST_CHECK_EQUAL( 2U, phases.size() );
+    BOOST_CHECK( phases.active( Phase::OIL ) );
+    BOOST_CHECK( phases.active( Phase::GAS ) );
+    BOOST_CHECK( runspec.h2Storage() );
+
+
+}
+
 BOOST_AUTO_TEST_CASE(NUPCOL_DEFAULT) {
     Nupcol np;
     auto default_value = ParserKeywords::NUPCOL::NUM_ITER::defaultValue;
@@ -1054,3 +1114,200 @@ BOOST_AUTO_TEST_CASE(NUPCOL) {
     BOOST_CHECK_EQUAL(np.value(), min_value);
 }
 
+BOOST_AUTO_TEST_CASE(Mech) {
+    const std::string input = R"(
+    RUNSPEC
+    OIL
+    GAS
+    WATER
+    MECH
+    )";
+
+    Parser parser;
+
+    auto deck = parser.parseString(input);
+
+    Runspec runspec( deck );
+    const auto& phases = runspec.phases();
+    BOOST_CHECK_EQUAL( 3U, phases.size() );
+    BOOST_CHECK( phases.active( Phase::OIL ) );
+    BOOST_CHECK( phases.active( Phase::GAS ) );
+    BOOST_CHECK( phases.active( Phase::WATER ) );
+    BOOST_CHECK( runspec.mech() );
+}
+
+BOOST_AUTO_TEST_CASE(NetworkDims_no_network)
+{
+    {
+        const auto nd = NetworkDims {};
+        BOOST_CHECK_MESSAGE(! nd.active(),
+                            "Default-constructed NetworkDims must not "
+                            "represent a run with active networks");
+
+        BOOST_CHECK_MESSAGE(! nd.extendedNetwork(),
+                            "Default-constructed NetworkDims must not "
+                            "represent a run with the extended network model");
+
+        BOOST_CHECK_MESSAGE(! nd.standardNetwork(),
+                            "Default-constructed NetworkDims must not "
+                            "represent a run with the standard network model");
+    }
+
+    {
+        const auto deck = Parser{}.parseString(R"(
+TOLCRIT
+  5.0E-7 /
+)");
+        const auto nd = Runspec{deck}.networkDimensions();
+
+        BOOST_CHECK_MESSAGE(! nd.active(),
+                            "NetworkDims from deck without networks must not "
+                            "represent a run with active networks");
+
+        BOOST_CHECK_MESSAGE(! nd.extendedNetwork(),
+                            "NetworkDims from deck without networks must not "
+                            "represent a run with the extended network model");
+
+        BOOST_CHECK_MESSAGE(! nd.standardNetwork(),
+                            "NetworkDims from deck without networks must not "
+                            "represent a run with the standard network model");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(NetworkDims_Extended)
+{
+    const auto deck = Parser{}.parseString(R"(
+NETWORK
+  42 1729 /
+)");
+    const auto nd = Runspec{deck}.networkDimensions();
+
+    BOOST_CHECK_MESSAGE(nd.active(),
+                        "NetworkDims from deck with NETWORK keyword must "
+                        "represent a run with active networks");
+
+    BOOST_CHECK_MESSAGE(nd.extendedNetwork(),
+                        "NetworkDims from deck with NETWORK keyword must "
+                        "represent a run with the extended network model");
+
+    BOOST_CHECK_MESSAGE(! nd.standardNetwork(),
+                        "NetworkDims from deck with NETWORK keyword must not "
+                        "represent a run with the standard network model");
+
+    BOOST_CHECK_EQUAL(nd.maxNONodes(), 42);
+    BOOST_CHECK_EQUAL(nd.maxNoBranches(), 1729);
+    BOOST_CHECK_EQUAL(nd.maxNoBranchesConToNode(), 20);
+}
+
+BOOST_AUTO_TEST_CASE(NetworkDims_Standard)
+{
+    const auto deck = Parser{}.parseString(R"(
+GRUPNET
+  FIELD 12.34 /
+  G 23.45 9999 /
+/
+)");
+    const auto nd = Runspec{deck}.networkDimensions();
+
+    BOOST_CHECK_MESSAGE(nd.active(),
+                        "NetworkDims from deck with GRUPNET keyword must "
+                        "represent a run with active networks");
+
+    BOOST_CHECK_MESSAGE(! nd.extendedNetwork(),
+                        "NetworkDims from deck with GRUPNET keyword must "
+                        "represent a run with the extended network model");
+
+    BOOST_CHECK_MESSAGE(nd.standardNetwork(),
+                        "NetworkDims from deck without networks must not "
+                        "represent a run with the standard network model");
+
+    BOOST_CHECK_EQUAL(nd.maxNONodes(), 0);
+    BOOST_CHECK_EQUAL(nd.maxNoBranches(), 0);
+    BOOST_CHECK_EQUAL(nd.maxNoBranchesConToNode(), 20);
+}
+
+BOOST_AUTO_TEST_CASE(Declared_Maximum_RegionIndex_Default)
+{
+    const auto deck = Parser{}.parseString(R"(
+TABDIMS
+/
+)");
+
+    const auto maxID = declaredMaxRegionID(Runspec{deck});
+
+    BOOST_CHECK_EQUAL(maxID, std::size_t{1});
+}
+
+BOOST_AUTO_TEST_CASE(Declared_Maximum_RegionIndex_TABDIMS)
+{
+    const auto deck = Parser{}.parseString(R"(
+TABDIMS
+  4* 5
+/
+)");
+
+    const auto maxID = declaredMaxRegionID(Runspec{deck});
+
+    BOOST_CHECK_EQUAL(maxID, std::size_t{5});
+}
+
+BOOST_AUTO_TEST_CASE(Declared_Maximum_RegionIndex_REGDIMS)
+{
+    const auto deck = Parser{}.parseString(R"(
+REGDIMS
+  3
+/
+)");
+
+    const auto maxID = declaredMaxRegionID(Runspec{deck});
+
+    BOOST_CHECK_EQUAL(maxID, std::size_t{3});
+}
+
+BOOST_AUTO_TEST_CASE(Declared_Maximum_RegionIndex_BOTH)
+{
+    const auto deck = Parser{}.parseString(R"(
+TABDIMS
+  4* 3
+/
+REGDIMS
+  3
+/
+)");
+
+    const auto maxID = declaredMaxRegionID(Runspec{deck});
+
+    BOOST_CHECK_EQUAL(maxID, std::size_t{3});
+}
+
+BOOST_AUTO_TEST_CASE(Declared_Maximum_RegionIndex_TABDIMS_Max)
+{
+    const auto deck = Parser{}.parseString(R"(
+TABDIMS
+  4* 5
+/
+REGDIMS
+  3
+/
+)");
+
+    const auto maxID = declaredMaxRegionID(Runspec{deck});
+
+    BOOST_CHECK_EQUAL(maxID, std::size_t{5});
+}
+
+BOOST_AUTO_TEST_CASE(Declared_Maximum_RegionIndex_REGDIMS_Max)
+{
+    const auto deck = Parser{}.parseString(R"(
+TABDIMS
+  4* 3
+/
+REGDIMS
+  6
+/
+)");
+
+    const auto maxID = declaredMaxRegionID(Runspec{deck});
+
+    BOOST_CHECK_EQUAL(maxID, std::size_t{6});
+}

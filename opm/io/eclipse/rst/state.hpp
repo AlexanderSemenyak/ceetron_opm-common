@@ -29,11 +29,12 @@
 #include <opm/io/eclipse/rst/udq.hpp>
 #include <opm/io/eclipse/rst/well.hpp>
 
-#include <opm/input/eclipse/EclipseState/Runspec.hpp>
+#include <opm/input/eclipse/Schedule/OilVaporizationProperties.hpp>
 #include <opm/input/eclipse/Schedule/Tuning.hpp>
 
 #include <opm/input/eclipse/Units/UnitSystem.hpp>
 
+#include <ctime>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -42,6 +43,7 @@
 namespace Opm {
     class EclipseGrid;
     class Parser;
+    class Runspec;
 } // namespace Opm
 
 namespace Opm { namespace EclIO {
@@ -74,9 +76,13 @@ struct RstState
     RstUDQActive udq_active;
     std::vector<RstAction> actions;
     Tuning tuning;
+    OilVaporizationProperties oilvap;
     std::unordered_map<std::string, std::vector<std::string>> wlists;
 
 private:
+    void load_oil_vaporization(const std::vector<int>& intehead,
+                               const std::vector<double>& doubhead);
+
     void load_tuning(const std::vector<int>& intehead,
                      const std::vector<double>& doubhead);
 
@@ -103,12 +109,7 @@ private:
                  const std::vector<int>& iseg,
                  const std::vector<double>& rseg);
 
-    void add_udqs(const std::vector<int>& iudq,
-                  const std::vector<std::string>& zudn,
-                  const std::vector<std::string>& zudl,
-                  const std::vector<double>& dudw,
-                  const std::vector<double>& dudg,
-                  const std::vector<double>& dudf);
+    void add_udqs(std::shared_ptr<EclIO::RestartFileView> rstView);
 
     void add_actions(const Parser& parser,
                      const Runspec& runspec,

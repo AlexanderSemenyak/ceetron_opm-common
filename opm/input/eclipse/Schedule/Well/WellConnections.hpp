@@ -21,10 +21,13 @@
 #define CONNECTIONSET_HPP_
 
 #include <opm/input/eclipse/Schedule/Well/Connection.hpp>
+#include <external/resinsight/LibGeometry/cvfBoundingBoxTree.h>
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <stddef.h>
@@ -32,10 +35,11 @@
 namespace Opm {
     class ActiveGridCells;
     class DeckRecord;
+    class EclipseGrid;
     class FieldPropsManager;
     class KeywordLocation;
     class ScheduleGrid;
-    class EclipseGrid;
+    class WDFAC;
 } // namespace Opm
 
 namespace Opm {
@@ -66,17 +70,16 @@ namespace Opm {
             }
         }
 
+        void add(const Connection& conn)
+        {
+            this->m_connections.push_back(conn);
+        }
+
         void addConnection(const int i, const int j, const int k,
                            const std::size_t global_index,
-                           const double depth,
                            const Connection::State state,
-                           const double CF,
-                           const double Kh,
-                           const double rw,
-                           const double r0,
-                           const double re,
-                           const double connection_length,
-                           const double skin_factor,
+                           const double depth,
+                           const Connection::CTFProperties& ctf_props,
                            const int satTableId,
                            const Connection::Direction direction = Connection::Direction::Z,
                            const Connection::CTFKind ctf_kind = Connection::CTFKind::DeckValue,
@@ -86,9 +89,26 @@ namespace Opm {
         void loadCOMPDAT(const DeckRecord&      record,
                          const ScheduleGrid&    grid,
                          const std::string&     wname,
+                         const WDFAC&           wdfac,
                          const KeywordLocation& location);
 
-        void add(Connection);
+        void loadCOMPTRAJ(const DeckRecord&      record,
+                          const ScheduleGrid&    grid,
+                          const std::string&     wname,
+                          const KeywordLocation& location,
+                          external::cvf::ref<external::cvf::BoundingBoxTree>& cellSearchTree);
+
+        void loadWELTRAJ(const DeckRecord&      record,
+                         const ScheduleGrid&    grid,
+                         const std::string&     wname,
+                         const KeywordLocation& location);
+
+        void applyDFactorCorrelation(const ScheduleGrid& grid,
+                                     const WDFAC&        wdfac);
+
+        int getHeadI() const;
+        int getHeadJ() const;
+        const std::vector<double>& getMD() const;
         std::size_t size() const;
         bool empty() const;
         std::size_t num_open() const;
@@ -98,11 +118,14 @@ namespace Opm {
         const Connection& getFromGlobalIndex(std::size_t global_index) const;
         const Connection& lowest() const;
         Connection& getFromIJK(const int i, const int j, const int k);
+        Connection* maybeGetFromGlobalIndex(const std::size_t global_index);
         bool hasGlobalIndex(std::size_t global_index) const;
         double segment_perf_length(int segment) const;
 
         const_iterator begin() const { return this->m_connections.begin(); }
         const_iterator end() const { return this->m_connections.end(); }
+        auto begin() { return this->m_connections.begin(); }
+        auto end() { return this->m_connections.end(); }
         void filter(const ActiveGridCells& grid);
         bool allConnectionsShut() const;
         /// Order connections irrespective of input order.
@@ -152,6 +175,8 @@ namespace Opm {
             serializer(this->headI);
             serializer(this->headJ);
             serializer(this->m_connections);
+            serializer(this->coord);
+            serializer(this->md);
         }
 
     private:
@@ -160,23 +185,20 @@ namespace Opm {
         int headJ{0};
         std::vector<Connection> m_connections{};
 
+        std::array<std::vector<double>, 3> coord{};
+        std::vector<double> md{};
+
         void addConnection(const int i, const int j, const int k,
                            const std::size_t global_index,
                            const int complnum,
-                           const double depth,
                            const Connection::State state,
-                           const double CF,
-                           const double Kh,
-                           const double rw,
-                           const double r0,
-                           const double re,
-                           const double connection_length,
-                           const double skin_factor,
+                           const double depth,
+                           const Connection::CTFProperties& ctf_props,
                            const int satTableId,
-                           const Connection::Direction direction = Connection::Direction::Z,
-                           const Connection::CTFKind ctf_kind = Connection::CTFKind::DeckValue,
-                           const std::size_t seqIndex = 0,
-                           const bool defaultSatTabId = true);
+                           const Connection::Direction direction,
+                           const Connection::CTFKind ctf_kind,
+                           const std::size_t seqIndex,
+                           const bool defaultSatTabId);
 
         size_t findClosestConnection(int oi, int oj, double oz, size_t start_pos);
         void orderTRACK();

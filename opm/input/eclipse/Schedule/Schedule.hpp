@@ -21,124 +21,101 @@
 
 #include <cstddef>
 #include <ctime>
+#include <functional>
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <optional>
-#include <iosfwd>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include <opm/input/eclipse/EclipseState/Runspec.hpp>
-#include <opm/input/eclipse/Parser/InputErrorAction.hpp>
-#include <opm/input/eclipse/Python/Python.hpp>
-#include <opm/input/eclipse/Schedule/GasLiftOpt.hpp>
-#include <opm/input/eclipse/Schedule/Group/Group.hpp>
-#include <opm/input/eclipse/Schedule/Group/GuideRateConfig.hpp>
-#include <opm/input/eclipse/Schedule/MessageLimits.hpp>
-#include <opm/input/eclipse/Schedule/Network/ExtNetwork.hpp>
-#include <opm/input/eclipse/Schedule/RPTConfig.hpp>
-#include <opm/input/eclipse/Schedule/ScheduleDeck.hpp>
-#include <opm/input/eclipse/Schedule/ScheduleState.hpp>
-#include <opm/input/eclipse/Schedule/Well/PAvg.hpp>
-#include <opm/input/eclipse/Schedule/Well/Well.hpp>
-#include <opm/input/eclipse/Schedule/Well/WellTestConfig.hpp>
-#include <opm/input/eclipse/Schedule/WriteRestartFileEvents.hpp>
-#include <opm/input/eclipse/Schedule/CompletedCells.hpp>
+#include <opm/input/eclipse/Schedule/Action/ActionResult.hpp>
 #include <opm/input/eclipse/Schedule/Action/SimulatorUpdate.hpp>
 #include <opm/input/eclipse/Schedule/Action/WGNames.hpp>
+#include <opm/input/eclipse/Schedule/CompletedCells.hpp>
+#include <opm/input/eclipse/Schedule/Group/Group.hpp>
+#include <opm/input/eclipse/Schedule/ScheduleDeck.hpp>
+#include <opm/input/eclipse/Schedule/ScheduleState.hpp>
+#include <opm/input/eclipse/Schedule/ScheduleStatic.hpp>
+#include <opm/input/eclipse/Schedule/Well/PAvg.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
+#include <opm/input/eclipse/Schedule/Well/Connection.hpp>
+#include <opm/input/eclipse/Schedule/WriteRestartFileEvents.hpp>
 #include <opm/input/eclipse/Units/UnitSystem.hpp>
 
-namespace Opm
-{
+namespace Opm {
     class ActiveGridCells;
     class Deck;
     class DeckKeyword;
     class DeckRecord;
+    enum class ConnectionOrder;
+    class EclipseGrid;
     class EclipseState;
-    class FieldPropsManager;
-    class GTNode;
-    class ParseContext;
-    class SCHEDULESection;
-    class SummaryState;
     class ErrorGuard;
+    class FieldPropsManager;
+    class GasLiftOpt;
+    class GTNode;
+    class GuideRateConfig;
+    class GuideRateModel;
+    class HandlerContext;
+    enum class InputErrorAction;
+    class ParseContext;
+    class Python;
+    namespace ReservoirCoupling {
+        class CouplingInfo;
+    }
+    class Runspec;
+    class RPTConfig;
+    class ScheduleGrid;
+    class SCHEDULESection;
+    class SegmentMatcher;
+    class SummaryState;
+    class TracerConfig;
     class UDQConfig;
+    class Well;
+    enum class WellGasInflowEquation;
     class WellMatcher;
+    enum class WellProducerCMode;
+    enum class WellStatus;
+    class WelSegsSet;
+    class WellTestConfig;
+} // namespace Opm
 
-    namespace RestartIO { struct RstState; }
+namespace Opm::Action {
+    class ActionX;
+    class PyAction;
+    class State;
+} // namespace Opm::Action
 
+namespace Opm::RestartIO {
+    struct RstState;
+} // namespace Opm::RestartIO
 
-    struct ScheduleStatic {
-        std::shared_ptr<const Python> m_python_handle;
-        std::string m_input_path;
-        ScheduleRestartInfo rst_info;
-        MessageLimits m_deck_message_limits;
-        UnitSystem m_unit_system;
-        Runspec m_runspec;
-        RSTConfig rst_config;
-        std::optional<int> output_interval;
-        double sumthin{-1.0};
-        bool rptonly{false};
-        bool gaslift_opt_active{false};
-
-        ScheduleStatic() = default;
-
-        explicit ScheduleStatic(std::shared_ptr<const Python> python_handle) :
-            m_python_handle(python_handle)
-        {}
-
-        ScheduleStatic(std::shared_ptr<const Python> python_handle,
-                       const ScheduleRestartInfo& restart_info,
-                       const Deck& deck,
-                       const Runspec& runspec,
-                       const std::optional<int>& output_interval_,
-                       const ParseContext& parseContext,
-                       ErrorGuard& errors);
-
-        template<class Serializer>
-        void serializeOp(Serializer& serializer)
-        {
-            serializer(m_deck_message_limits);
-            serializer(this->rst_info);
-            serializer(m_runspec);
-            serializer(m_unit_system);
-            serializer(this->m_input_path);
-            serializer(rst_info);
-            serializer(rst_config);
-            serializer(this->output_interval);
-            serializer(this->gaslift_opt_active);
-        }
-
-
-        static ScheduleStatic serializationTestObject() {
-            auto python = std::make_shared<Python>(Python::Enable::OFF);
-            ScheduleStatic st(python);
-            st.m_deck_message_limits = MessageLimits::serializationTestObject();
-            st.m_runspec = Runspec::serializationTestObject();
-            st.m_unit_system = UnitSystem::newFIELD();
-            st.m_input_path = "Some/funny/path";
-            st.rst_config = RSTConfig::serializationTestObject();
-            st.rst_info = ScheduleRestartInfo::serializationTestObject();
-            return st;
-        }
-
-        bool operator==(const ScheduleStatic& other) const {
-            return this->m_input_path == other.m_input_path &&
-                   this->m_deck_message_limits == other.m_deck_message_limits &&
-                   this->m_unit_system == other.m_unit_system &&
-                   this->rst_config == other.rst_config &&
-                   this->rst_info == other.rst_info &&
-                   this->gaslift_opt_active == other.gaslift_opt_active &&
-                   this->m_runspec == other.m_runspec;
-        }
-    };
-
-
-    class Schedule {
+namespace Opm {
+    class Schedule
+    {
     public:
         Schedule() = default;
+
         explicit Schedule(std::shared_ptr<const Python> python_handle);
+
+        /*! \brief Construct a Schedule object from a deck.
+         *  \param deck Deck to construct Schedule from
+         *  \param fp Field property manager
+         *  \param runspec Run specification parameters to use
+         *  \param parseContext Parsing context
+         *  \param errors Error configuration
+         *  \param python Python interpreter to use
+         *  \param lowActionParsingStrictness Reduce parsing strictness for actions
+         *  \param slave_mode Slave mode flag
+         *  \param keepKeywords Keep the schdule keywords even if there are no actions
+         *  \param output_interval Output interval to use
+         *  \param rst Restart state to use
+         *  \param tracer_config Tracer configuration to use
+         */
         Schedule(const Deck& deck,
                  const EclipseGrid& grid,
                  const FieldPropsManager& fp,
@@ -146,6 +123,9 @@ namespace Opm
                  const ParseContext& parseContext,
                  ErrorGuard& errors,
                  std::shared_ptr<const Python> python,
+                 const bool lowActionParsingStrictness = false,
+                 const bool slave_mode = false,
+                 const bool keepKeywords = true,
                  const std::optional<int>& output_interval = {},
                  const RestartIO::RstState* rst = nullptr,
                  const TracerConfig* tracer_config = nullptr);
@@ -158,6 +138,9 @@ namespace Opm
                  const ParseContext& parseContext,
                  T&& errors,
                  std::shared_ptr<const Python> python,
+                 const bool lowActionParsingStrictness = false,
+                 const bool slave_mode = false,
+                 const bool keepKeywords = true,
                  const std::optional<int>& output_interval = {},
                  const RestartIO::RstState* rst = nullptr,
                  const TracerConfig* tracer_config = nullptr);
@@ -167,6 +150,9 @@ namespace Opm
                  const FieldPropsManager& fp,
                  const Runspec &runspec,
                  std::shared_ptr<const Python> python,
+                 const bool lowActionParsingStrictness = false,
+                 const bool slave_mode = false,
+                 const bool keepKeywords = true,
                  const std::optional<int>& output_interval = {},
                  const RestartIO::RstState* rst = nullptr,
                  const TracerConfig* tracer_config = nullptr);
@@ -176,6 +162,9 @@ namespace Opm
                  const ParseContext& parseContext,
                  ErrorGuard& errors,
                  std::shared_ptr<const Python> python,
+                 const bool lowActionParsingStrictness = false,
+                 const bool slave_mode = false,
+                 const bool keepKeywords = true,
                  const std::optional<int>& output_interval = {},
                  const RestartIO::RstState* rst = nullptr);
 
@@ -185,12 +174,18 @@ namespace Opm
                  const ParseContext& parseContext,
                  T&& errors,
                  std::shared_ptr<const Python> python,
+                 const bool lowActionParsingStrictness = false,
+                 const bool slave_mode = false,
+                 const bool keepKeywords = true,
                  const std::optional<int>& output_interval = {},
                  const RestartIO::RstState* rst = nullptr);
 
         Schedule(const Deck& deck,
                  const EclipseState& es,
                  std::shared_ptr<const Python> python,
+                 const bool lowActionParsingStrictness = false,
+                 const bool slave_mode = false,
+                 const bool keepKeywords = true,
                  const std::optional<int>& output_interval = {},
                  const RestartIO::RstState* rst = nullptr);
 
@@ -199,6 +194,8 @@ namespace Opm
                  const EclipseState& es,
                  const std::optional<int>& output_interval = {},
                  const RestartIO::RstState* rst = nullptr);
+
+        ~Schedule() = default;
 
         static Schedule serializationTestObject();
 
@@ -222,6 +219,7 @@ namespace Opm
         bool hasWell(const std::string& wellName, std::size_t timeStep) const;
 
         WellMatcher wellMatcher(std::size_t report_step) const;
+        std::function<std::unique_ptr<SegmentMatcher>()> segmentMatcherFactory(std::size_t report_step) const;
         std::vector<std::string> wellNames(const std::string& pattern, std::size_t timeStep, const std::vector<std::string>& matching_wells = {}) const;
         std::vector<std::string> wellNames(const std::string& pattern) const;
         std::vector<std::string> wellNames(std::size_t timeStep) const;
@@ -247,16 +245,26 @@ namespace Opm
         const Well& getWell(std::size_t well_index, std::size_t timeStep) const;
         const Well& getWell(const std::string& wellName, std::size_t timeStep) const;
         const Well& getWellatEnd(const std::string& well_name) const;
+        // get the list of the constant flux aquifer specified in the whole schedule
+        std::unordered_set<int> getAquiferFluxSchedule() const;
         std::vector<Well> getWells(std::size_t timeStep) const;
         std::vector<Well> getWellsatEnd() const;
+        std::vector<Well> getActiveWellsAtEnd() const; // Get wells that have been active any time during simulation
+        std::vector<std::string> getInactiveWellNamesAtEnd() const; // Get well names of wells that have never been active
+
+        const std::unordered_map<std::string, std::set<int>>& getPossibleFutureConnections() const;
+
         void shut_well(const std::string& well_name, std::size_t report_step);
+        void shut_well(const std::string& well_name);
         void stop_well(const std::string& well_name, std::size_t report_step);
+        void stop_well(const std::string& well_name);
         void open_well(const std::string& well_name, std::size_t report_step);
+        void open_well(const std::string& well_name);
+        void clear_event(ScheduleEvents::Events, std::size_t report_step);
+        void add_event(ScheduleEvents::Events, std::size_t report_step);
         void applyWellProdIndexScaling(const std::string& well_name, const std::size_t reportStep, const double scalingFactor);
 
-        std::vector<const Group*> getChildGroups2(const std::string& group_name, std::size_t timeStep) const;
-        std::vector<Well> getChildWells2(const std::string& group_name, std::size_t timeStep) const;
-        Well::ProducerCMode getGlobalWhistctlMmode(std::size_t timestep) const;
+        WellProducerCMode getGlobalWhistctlMmode(std::size_t timestep) const;
 
         const UDQConfig& getUDQConfig(std::size_t timeStep) const;
         void evalAction(const SummaryState& summary_state, std::size_t timeStep);
@@ -276,14 +284,20 @@ namespace Opm
         bool write_rst_file(std::size_t report_step) const;
         const std::map< std::string, int >& rst_keywords( size_t timestep ) const;
 
-        /*
-          The applyAction() is invoked from the simulator *after* an ACTIONX has
-          evaluated to true. The return value is a small structure with
-          'information' which the simulator should take into account when
-          updating internal datastructures after the ACTIONX keywords have been
-          applied.
-        */
-        SimulatorUpdate applyAction(std::size_t reportStep, const Action::ActionX& action, const std::vector<std::string>& matching_wells, const std::unordered_map<std::string, double>& wellpi);
+        // The applyAction() member function is invoked from the simulator
+        // *after* an ACTIONX has triggered.  Its return value is a small
+        // structure with 'information' which the simulator should take into
+        // account when updating internal datastructures after the ACTIONX
+        // keywords have been applied.
+        SimulatorUpdate applyAction(std::size_t reportStep,
+                                    const Action::ActionX& action,
+                                    const Action::Result::MatchingEntities& matches,
+                                    const std::unordered_map<std::string, double>& wellpi);
+
+        SimulatorUpdate applyAction(std::size_t reportStep,
+                                    const Action::ActionX& action,
+                                    const Action::Result::MatchingEntities& matches,
+                                    const std::unordered_map<std::string, float>& wellpi);
         /*
           The runPyAction() will run the Python script in a PYACTION keyword. In
           the case of Schedule updates the recommended way of doing that from
@@ -293,6 +307,8 @@ namespace Opm
         */
         SimulatorUpdate runPyAction(std::size_t reportStep, const Action::PyAction& pyaction, Action::State& action_state, EclipseState& ecl_state, SummaryState& summary_state);
 
+        SimulatorUpdate modifyCompletions(const std::size_t reportStep,
+                                          const std::map<std::string, std::vector<Connection>>& extraConns);
 
         const GasLiftOpt& glo(std::size_t report_step) const;
 
@@ -308,6 +324,7 @@ namespace Opm
         void create_next(const ScheduleBlock& block);
         void create_first(const time_point& start_time, const std::optional<time_point>& end_time);
 
+        void treat_critical_as_non_critical(bool value) { this->m_treat_critical_as_non_critical = value; }
 
         /*
           The cmp() function compares two schedule instances in a context aware
@@ -316,7 +333,8 @@ namespace Opm
           for the schedule instances created by loading a restart file.
         */
         static bool cmp(const Schedule& sched1, const Schedule& sched2, std::size_t report_step);
-        void applyKeywords(std::vector<DeckKeyword*>& keywords, std::size_t timeStep);
+        void applyKeywords(std::vector<std::unique_ptr<DeckKeyword>>& keywords, std::size_t report_step);
+        void applyKeywords(std::vector<std::unique_ptr<DeckKeyword>>& keywords);
 
         template<class Serializer>
         void serializeOp(Serializer& serializer)
@@ -324,52 +342,34 @@ namespace Opm
             serializer(this->m_static);
             serializer(this->m_sched_deck);
             serializer(this->action_wgnames);
+            serializer(this->potential_wellopen_patterns);
             serializer(this->exit_status);
             serializer(this->snapshots);
             serializer(this->restart_output);
             serializer(this->completed_cells);
+            serializer(this->m_treat_critical_as_non_critical);
+            serializer(this->current_report_step);
+            serializer(this->m_lowActionParsingStrictness);
+            serializer(this->simUpdateFromPython);
 
-            this->template pack_unpack<PAvg>(serializer);
-            this->template pack_unpack<WellTestConfig>(serializer);
-            this->template pack_unpack<GConSale>(serializer);
-            this->template pack_unpack<GConSump>(serializer);
-            this->template pack_unpack<WListManager>(serializer);
-            this->template pack_unpack<Network::ExtNetwork>(serializer);
-            this->template pack_unpack<Network::Balance>(serializer);
-            this->template pack_unpack<RPTConfig>(serializer);
-            this->template pack_unpack<Action::Actions>(serializer);
-            this->template pack_unpack<UDQActive>(serializer);
-            this->template pack_unpack<UDQConfig>(serializer);
-            this->template pack_unpack<NameOrder>(serializer);
-            this->template pack_unpack<GroupOrder>(serializer);
-            this->template pack_unpack<GuideRateConfig>(serializer);
-            this->template pack_unpack<GasLiftOpt>(serializer);
-            this->template pack_unpack<RFTConfig>(serializer);
-            this->template pack_unpack<RSTConfig>(serializer);
-
-            this->template pack_unpack_map<int, VFPProdTable>(serializer);
-            this->template pack_unpack_map<int, VFPInjTable>(serializer);
-            this->template pack_unpack_map<std::string, Group>(serializer);
-            this->template pack_unpack_map<std::string, Well>(serializer);
-        }
-
-        template <typename T, class Serializer>
-        void pack_unpack(Serializer& serializer) {
-            std::vector<T> value_list;
-            std::vector<std::size_t> index_list;
-
-            if (serializer.isSerializing())
-                this->template pack_state<T>(value_list, index_list);
-
-            serializer(value_list);
-            serializer(index_list);
-
-            if (!serializer.isSerializing())
-                this->template unpack_state<T>(value_list, index_list);
+            // If we are deserializing we need to setup the pointer to the
+            // unit system since this is process specific. This is safe
+            // because we set the same value in all well instances.
+            // We do some redundant assignments as these are shared_ptr's
+            // with multiple pointers to any given instance, but it is not
+            // significant so let's keep it simple.
+            if (!serializer.isSerializing()) {
+                for (auto& snapshot : snapshots) {
+                    for (auto& well : snapshot.wells) {
+                        well.second->updateUnitSystem(&m_static.m_unit_system);
+                    }
+                }
+            }
         }
 
         template <typename T>
-        std::vector<std::pair<std::size_t,  T>> unique() const {
+        std::vector<std::pair<std::size_t,  T>> unique() const
+        {
             std::vector<std::pair<std::size_t, T>> values;
             for (std::size_t index = 0; index < this->snapshots.size(); index++) {
                 const auto& member = this->snapshots[index].get<T>();
@@ -380,170 +380,47 @@ namespace Opm
             return values;
         }
 
-
-        template <typename T>
-        void pack_state(std::vector<T>& value_list, std::vector<std::size_t>& index_list) const {
-            auto unique_values = this->template unique<T>();
-            for (auto& [index, value] : unique_values) {
-                value_list.push_back( std::move(value) );
-                index_list.push_back( index );
-            }
-        }
-
-
-        template <typename T>
-        void unpack_state(const std::vector<T>& value_list, const std::vector<std::size_t>& index_list) {
-            std::size_t unique_index = 0;
-            while (unique_index < value_list.size()) {
-                const auto& value = value_list[unique_index];
-                const auto& first_index = index_list[unique_index];
-                auto last_index = this->snapshots.size();
-                if (unique_index < (value_list.size() - 1))
-                    last_index = index_list[unique_index + 1];
-
-                auto& target_state = this->snapshots[first_index];
-                target_state.get<T>().update( std::move(value) );
-                for (std::size_t index=first_index + 1; index < last_index; index++)
-                    this->snapshots[index].get<T>().update( target_state.get<T>() );
-
-                unique_index++;
-            }
-        }
-
-
-        template <typename K, typename T, class Serializer>
-        void pack_unpack_map(Serializer& serializer) {
-            std::vector<T> value_list;
-            std::vector<std::size_t> index_list;
-
-            if (serializer.isSerializing())
-                pack_map<K,T>(value_list, index_list);
-
-            serializer(value_list);
-            serializer(index_list);
-
-            if (!serializer.isSerializing())
-                unpack_map<K,T>(value_list, index_list);
-        }
-
-
-        template <typename K, typename T>
-        void pack_map(std::vector<T>& value_list,
-                      std::vector<std::size_t>& index_list) {
-
-            const auto& last_map = this->snapshots.back().get_map<K,T>();
-            std::vector<K> key_list{ last_map.keys() };
-            std::unordered_map<K,T> current_value;
-
-            for (std::size_t index = 0; index < this->snapshots.size(); index++) {
-                auto& state = this->snapshots[index];
-                const auto& current_map = state.template get_map<K,T>();
-                for (const auto& key : key_list) {
-                    auto& value = current_map.get_ptr(key);
-                    if (value) {
-                        auto it = current_value.find(key);
-                        if (it == current_value.end() || !(*value == it->second)) {
-                            value_list.push_back( *value );
-                            index_list.push_back( index );
-
-                            current_value[key] = *value;
-                        }
-                    }
-                }
-            }
-        }
-
-
-        template <typename K, typename T>
-        void unpack_map(const std::vector<T>& value_list,
-                        const std::vector<std::size_t>& index_list) {
-
-            std::unordered_map<K, std::vector<std::pair<std::size_t, T>>> storage;
-            for (std::size_t storage_index = 0; storage_index < value_list.size(); storage_index++) {
-                const auto& value = value_list[storage_index];
-                const auto& time_index = index_list[storage_index];
-
-                storage[ value.name() ].emplace_back( time_index, value );
-            }
-
-            for (const auto& [key, values] : storage) {
-                for (std::size_t unique_index = 0; unique_index < values.size(); unique_index++) {
-                    const auto& [time_index, value] = values[unique_index];
-                    auto last_index = this->snapshots.size();
-                    if (unique_index < (values.size() - 1))
-                        last_index = values[unique_index + 1].first;
-
-                    auto& map_value = this->snapshots[time_index].template get_map<K,T>();
-                    map_value.update(std::move(value));
-
-                    for (std::size_t index=time_index + 1; index < last_index; index++) {
-                        auto& forward_map = this->snapshots[index].template get_map<K,T>();
-                        forward_map.update( key, map_value );
-                    }
-                }
-            }
-        }
-
         friend std::ostream& operator<<(std::ostream& os, const Schedule& sched);
         void dump_deck(std::ostream& os) const;
 
     private:
-        struct HandlerContext {
-            const ScheduleBlock& block;
-            const DeckKeyword& keyword;
-            const std::size_t currentStep;
-            const std::vector<std::string>& matching_wells;
-            const bool actionx_mode;
-            const ParseContext& parseContext;
-            ErrorGuard& errors;
-            SimulatorUpdate * sim_update;
-            const std::unordered_map<std::string, double> * target_wellpi;
-            std::unordered_map<std::string, double>* wpimult_global_factor;
-            const ScheduleGrid& grid;
-
-            HandlerContext(const ScheduleBlock& block_,
-                           const DeckKeyword& keyword_,
-                           const ScheduleGrid& grid_,
-                           const std::size_t currentStep_,
-                           const std::vector<std::string>& matching_wells_,
-                           bool actionx_mode_,
-                           const ParseContext& parseContext_,
-                           ErrorGuard& errors_,
-                           SimulatorUpdate * sim_update_,
-                           const std::unordered_map<std::string, double> * target_wellpi_,
-                           std::unordered_map<std::string, double>* wpimult_global_factor_)
-            : block(block_)
-            , keyword(keyword_)
-            , currentStep(currentStep_)
-            , matching_wells(matching_wells_)
-            , actionx_mode(actionx_mode_)
-            , parseContext(parseContext_)
-            , errors(errors_)
-            , sim_update(sim_update_)
-            , target_wellpi(target_wellpi_)
-            , wpimult_global_factor(wpimult_global_factor_)
-            , grid(grid_)
-            {}
-
-            void affected_well(const std::string& well_name) {
-                if (this->sim_update)
-                    this->sim_update->affected_wells.insert(well_name);
-            }
-
-        };
+        friend class HandlerContext;
 
         // Please update the member functions
         //   - operator==(const Schedule&) const
         //   - serializationTestObject()
         //   - serializeOp(Serializer&)
         // when you update/change this list of data members.
-        ScheduleStatic m_static;
-        ScheduleDeck m_sched_deck;
-        Action::WGNames action_wgnames;
-        std::optional<int> exit_status;
-        std::vector<ScheduleState> snapshots;
-        WriteRestartFileEvents restart_output;
-        CompletedCells completed_cells;
+        bool m_treat_critical_as_non_critical = false;
+        ScheduleStatic m_static{};
+        ScheduleDeck m_sched_deck{};
+        Action::WGNames action_wgnames{};
+        std::unordered_set<std::string> potential_wellopen_patterns{}; // Set of well name patterns that potentially can open
+        std::optional<int> exit_status{};
+        std::vector<ScheduleState> snapshots{};
+        WriteRestartFileEvents restart_output{};
+        CompletedCells completed_cells{};
+
+        // Boolean indicating the strictness of parsing process for ActionX and PyAction.
+        // If lowActionParsingStrictness is true, the simulator tries to apply unsupported
+        // keywords, if lowActionParsingStrictness is false, the simulator only applies
+        // supported keywords.
+        bool m_lowActionParsingStrictness = false;
+
+        // This unordered_map contains possible future connections of wells that might get added through an ACTIONX.
+        // For parallel runs, this unordered_map is retrieved by the grid partitioner to ensure these connections
+        // end up on the same partition.
+        std::unordered_map<std::string, std::set<int>> possibleFutureConnections;
+
+        // The current_report_step is set to the current report step when a PYACTION call is executed.
+        // This is needed since the Schedule object does not know the current report step of the simulator and
+        // we only allow PYACTIONS for the current and future report steps. 
+        std::size_t current_report_step = 0;
+        // The simUpdateFromPython points to a SimulatorUpdate collecting all updates from one PYACTION call.
+        // The SimulatorUpdate is reset before a new PYACTION call is executed.
+        // It is a shared_ptr, so a Schedule can be constructed using the copy constructor sharing the simUpdateFromPython.
+        // The copy constructor is needed for creating a mocked simulator (msim).
+        std::shared_ptr<SimulatorUpdate> simUpdateFromPython{};
 
         void load_rst(const RestartIO::RstState& rst,
                       const TracerConfig& tracer_config,
@@ -560,15 +437,15 @@ namespace Opm
                      bool allowCrossFlow,
                      bool automaticShutIn,
                      int pvt_table,
-                     Well::GasInflowEquation gas_inflow,
+                     WellGasInflowEquation gas_inflow,
                      std::size_t timeStep,
-                     Connection::Order wellConnectionOrder);
+                     ConnectionOrder wellConnectionOrder);
         bool updateWPAVE(const std::string& wname, std::size_t report_step, const PAvg& pavg);
 
         void updateGuideRateModel(const GuideRateModel& new_model, std::size_t report_step);
         GTNode groupTree(const std::string& root_node, std::size_t report_step, std::size_t level, const std::optional<std::string>& parent_name) const;
         bool checkGroups(const ParseContext& parseContext, ErrorGuard& errors);
-        bool updateWellStatus( const std::string& well, std::size_t reportStep, Well::Status status, std::optional<KeywordLocation> = {});
+        bool updateWellStatus( const std::string& well, std::size_t reportStep, WellStatus status, std::optional<KeywordLocation> = {});
         void addWellToGroup( const std::string& group_name, const std::string& well_name , std::size_t timeStep);
         void iterateScheduleSection(std::size_t load_start,
                                     std::size_t load_end,
@@ -577,143 +454,50 @@ namespace Opm
                                     const ScheduleGrid& grid,
                                     const std::unordered_map<std::string, double> * target_wellpi,
                                     const std::string& prefix,
+                                    const bool keepKeywords,
                                     const bool log_to_debug = false);
         void addACTIONX(const Action::ActionX& action);
         void addGroupToGroup( const std::string& parent_group, const std::string& child_group);
         void addGroup(const std::string& groupName , std::size_t timeStep);
         void addGroup(Group group);
         void addGroup(const RestartIO::RstGroup& rst_group, std::size_t timeStep);
-        void addWell(const std::string& wellName, const DeckRecord& record, std::size_t timeStep, Connection::Order connection_order);
+        void addWell(const std::string& wellName, const DeckRecord& record,
+                    std::size_t timeStep, ConnectionOrder connection_order);
         void checkIfAllConnectionsIsShut(std::size_t currentStep);
         void end_report(std::size_t report_step);
+        /// \param welsegs_wells All wells with a WELSEGS entry for checks.
+        /// \param compegs_wells All wells with a COMPSEGS entry for checks.
         void handleKeyword(std::size_t currentStep,
                            const ScheduleBlock& block,
                            const DeckKeyword& keyword,
                            const ParseContext& parseContext,
                            ErrorGuard& errors,
                            const ScheduleGrid& grid,
-                           const std::vector<std::string>& matching_wells,
+                           const Action::Result::MatchingEntities& matches,
                            bool actionx_mode,
                            SimulatorUpdate* sim_update,
                            const std::unordered_map<std::string, double>* target_wellpi,
-                           std::unordered_map<std::string, double>* wpimult_global_factor = nullptr);
+                           std::unordered_map<std::string, double>& wpimult_global_factor,
+                           WelSegsSet* welsegs_wells = nullptr,
+                           std::set<std::string>* compsegs_wells = nullptr);
 
-        void prefetch_cell_properties(const ScheduleGrid& grid, const DeckKeyword& keyword);
+        void internalWELLSTATUSACTIONXFromPYACTION(const std::string& well_name, std::size_t report_step, const std::string& wellStatus);
+        void prefetchPossibleFutureConnections(const ScheduleGrid& grid, const DeckKeyword& keyword,
+                                               const ParseContext& parseContext, ErrorGuard& errors);
         void store_wgnames(const DeckKeyword& keyword);
-        std::vector<std::string> wellNames(const std::string& pattern, const HandlerContext& context);
-        std::vector<std::string> wellNames(const std::string& pattern, std::size_t timeStep, const std::vector<std::string>& matching_wells, InputError::Action error_action, ErrorGuard& errors, const KeywordLocation& location) const;
-        void invalidNamePattern( const std::string& namePattern, const HandlerContext& context) const;
+        std::vector<std::string> wellNames(const std::string& pattern,
+                                           const HandlerContext& context,
+                                           bool allowEmpty = false);
+        std::vector<std::string> wellNames(const std::string& pattern, std::size_t timeStep, const std::vector<std::string>& matching_wells, InputErrorAction error_action, ErrorGuard& errors, const KeywordLocation& location) const;
         static std::string formatDate(std::time_t t);
         std::string simulationDays(std::size_t currentStep) const;
         void applyGlobalWPIMULT( const std::unordered_map<std::string, double>& wpimult_global_factor);
 
         bool must_write_rst_file(std::size_t report_step) const;
 
-        void applyEXIT(const DeckKeyword&, std::size_t currentStep);
+        bool isWList(std::size_t report_step, const std::string& pattern) const;
+
         SimulatorUpdate applyAction(std::size_t reportStep, const std::string& action_name, const std::vector<std::string>& matching_wells);
-
-        /**
-         * Handles a "normal" keyword. A normal keyword is one that can be handled by a function with the standard set of arguments (the ones that are passed to this function).
-         *
-         * Normal keywords are found in the file KeywordHandlers.cpp; to add a new keyword handler to the file, add its signature in the list below,
-         * add the implementation to KeywordHandlers.cpp, and add a pointer to the handler in the dispatch registry in the implementation of this method, found at the bottom of
-         * KeywordHandlers.cpp.
-         *
-         * For the benefit of automatic cross-checking of the lists, all of these are in alphabetical order.
-         *
-         * @param handlerContext context object containing the environment in which the handler was invoked
-         * @param parseContext context object containing the parsing environment
-         * @param errors the error handling object for the current parsing process
-         *
-         * @return `true` if the keyword was handled
-         */
-        bool handleNormalKeyword(HandlerContext& handlerContext);
-
-        // Keyword Handlers
-        void handlePYACTION(const DeckKeyword&);
-        void handleWELPIRuntime(HandlerContext&);
-
-        // Normal keyword handlers -- in KeywordHandlers.cpp
-
-        void handleBRANPROP  (HandlerContext&);
-        void handleCOMPDAT   (HandlerContext&);
-        void handleCOMPLUMP  (HandlerContext&);
-        void handleCOMPORD   (HandlerContext&);
-        void handleCOMPSEGS  (HandlerContext&);
-        void handleDRSDT     (HandlerContext&);
-        void handleDRSDTCON  (HandlerContext&);
-        void handleDRSDTR    (HandlerContext&);
-        void handleDRVDT     (HandlerContext&);
-        void handleDRVDTR    (HandlerContext&);
-        void handleEXIT      (HandlerContext&);
-        void handleGCONINJE  (HandlerContext&);
-        void handleGCONPROD  (HandlerContext&);
-        void handleGCONSALE  (HandlerContext&);
-        void handleGCONSUMP  (HandlerContext&);
-        void handleGEFAC     (HandlerContext&);
-        void handleGEOKeyword(HandlerContext&);
-        void handleGLIFTOPT  (HandlerContext&);
-        void handleGPMAINT   (HandlerContext&);
-        void handleGRUPNET   (HandlerContext&);
-        void handleGRUPTREE  (HandlerContext&);
-        void handleGUIDERAT  (HandlerContext&);
-        void handleLIFTOPT   (HandlerContext&);
-        void handleLINCOM    (HandlerContext&);
-        void handleMESSAGES  (HandlerContext&);
-        void handleMXUNSUPP  (HandlerContext&);
-        void handleNETBALAN  (HandlerContext&);
-        void handleNEXTSTEP  (HandlerContext&);
-        void handleNODEPROP  (HandlerContext&);
-        void handleNUPCOL    (HandlerContext&);
-        void handleRPTONLY   (HandlerContext&);
-        void handleRPTONLYO  (HandlerContext&);
-        void handleRPTRST    (HandlerContext&);
-        void handleRPTSCHED  (HandlerContext&);
-        void handleTUNING    (HandlerContext&);
-        void handleSAVE      (HandlerContext&);
-        void handleSUMTHIN   (HandlerContext&);
-        void handleUDQ       (HandlerContext&);
-        void handleVAPPARS   (HandlerContext&);
-        void handleVFPINJ    (HandlerContext&);
-        void handleVFPPROD   (HandlerContext&);
-        void handleWCONHIST  (HandlerContext&);
-        void handleWCONINJE  (HandlerContext&);
-        void handleWCONINJH  (HandlerContext&);
-        void handleWCONPROD  (HandlerContext&);
-        void handleWECON     (HandlerContext&);
-        void handleWEFAC     (HandlerContext&);
-        void handleWELOPEN   (HandlerContext&);
-        void handleWELPI     (HandlerContext&);
-        void handleWELSEGS   (HandlerContext&);
-        void handleWELSPECS  (HandlerContext&);
-        void handleWELTARG   (HandlerContext&);
-        void handleWFOAM     (HandlerContext&);
-        void handleWGRUPCON  (HandlerContext&);
-        void handleWHISTCTL  (HandlerContext&);
-        void handleWINJTEMP  (HandlerContext&);
-        void handleWLIFTOPT  (HandlerContext&);
-        void handleWLIST     (HandlerContext&);
-        void handleWMICP     (HandlerContext&);
-        void handleWPAVE     (HandlerContext&);
-        void handleWPAVEDEP  (HandlerContext&);
-        void handleWVFPEXP   (HandlerContext&);
-        void handleWWPAVE    (HandlerContext&);
-        void handleWPIMULT   (HandlerContext&);
-        void handleWPMITAB   (HandlerContext&);
-        void handleWPOLYMER  (HandlerContext&);
-        void handleWRFT      (HandlerContext&);
-        void handleWRFTPLT   (HandlerContext&);
-        void handleWSALT     (HandlerContext&);
-        void handleWSEGITER  (HandlerContext&);
-        void handleWSEGSICD  (HandlerContext&);
-        void handleWSEGAICD  (HandlerContext&);
-        void handleWSEGVALV  (HandlerContext&);
-        void handleWSKPTAB   (HandlerContext&);
-        void handleWSOLVENT  (HandlerContext&);
-        void handleWTEMP     (HandlerContext&);
-        void handleWTEST     (HandlerContext&);
-        void handleWTMULT    (HandlerContext&);
-        void handleWTRACER   (HandlerContext&);
     };
 }
 

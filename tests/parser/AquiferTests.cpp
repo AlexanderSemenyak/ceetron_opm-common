@@ -22,6 +22,7 @@ along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 #include <opm/input/eclipse/EclipseState/Aquifer/Aquancon.hpp>
 #include <opm/input/eclipse/EclipseState/Aquifer/AquiferCT.hpp>
 #include <opm/input/eclipse/EclipseState/Aquifer/Aquifetp.hpp>
+#include <opm/input/eclipse/EclipseState/Aquifer/AquiferFlux.hpp>
 #include <opm/input/eclipse/EclipseState/Aquifer/AquiferConfig.hpp>
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
 #include <opm/input/eclipse/EclipseState/Tables/TableManager.hpp>
@@ -556,8 +557,9 @@ PORO
 
     const auto& fetp  = conf.fetp();
     const auto& ct    = conf.ct();
+    const auto& aquflux = conf.aquflux();
     const auto& conn  = conf.connections();
-    Opm::AquiferConfig conf2(fetp, ct, conn);
+    Opm::AquiferConfig conf2(fetp, ct, aquflux, conn);
     BOOST_CHECK( conf == conf2 );
 }
 
@@ -791,6 +793,14 @@ BOOST_AUTO_TEST_CASE(NumericalAquiferTest)
         BOOST_CHECK_EQUAL(c3->pvttable, 1);
         BOOST_CHECK_EQUAL(c3->sattable, 3);
         BOOST_CHECK_EQUAL(c3->global_index, 3);
+    }
+
+    {
+        const auto numAquCells = num_aqu.allAquiferCellIds();
+        const auto expect = std::vector { 0, 2, 3, };
+
+        BOOST_CHECK_EQUAL_COLLECTIONS(numAquCells.begin(), numAquCells.end(),
+                                      expect     .begin(), expect     .end());
     }
 
     // using processed actnum for numerical aquifer connection generation

@@ -21,7 +21,6 @@
 #define OPM_PARSER_NNC_HPP
 
 #include <cstddef>
-#include <memory>
 #include <optional>
 #include <tuple>
 #include <vector>
@@ -61,9 +60,9 @@ struct NNCdata {
         return std::tie(this->cell1, this->cell2) < std::tie(other.cell1, other.cell2);
     }
 
-    size_t cell1;
-    size_t cell2;
-    double trans;
+    size_t cell1{};
+    size_t cell2{};
+    double trans{};
 };
 
 
@@ -109,10 +108,18 @@ public:
     static NNC serializationTestObject();
 
     bool addNNC(const size_t cell1, const size_t cell2, const double trans);
+
+    /// \brief Merge additional NNCs into sorted NNCs
+    void merge(const std::vector<NNCdata>& nncs);
+    /// \brief Get the combined information from NNC
     const std::vector<NNCdata>& input() const { return m_input; }
+    /// \brief Get the information from EDITNNC keyword
     const std::vector<NNCdata>& edit() const { return m_edit; }
+    /// \brief Get the information from EDITNNCR keyword
+    const std::vector<NNCdata>& editr() const { return m_editr; }
     KeywordLocation input_location(const NNCdata& nnc) const;
     KeywordLocation edit_location(const NNCdata& nnc) const;
+    KeywordLocation editr_location(const NNCdata& nnc) const;
 
 
     bool operator==(const NNC& data) const;
@@ -122,21 +129,28 @@ public:
     {
         serializer(m_input);
         serializer(m_edit);
+        serializer(m_editr);
         serializer(m_nnc_location);
         serializer(m_edit_location);
+        serializer(m_editr_location);
     }
 
 private:
 
     void load_input(const EclipseGrid& grid, const Deck& deck);
     void load_edit(const EclipseGrid& grid, const Deck& deck);
+    void load_editr(const EclipseGrid& grid, const Deck& deck);
     void add_edit(const NNCdata& edit_node);
-    bool update_nnc(std::size_t global_index1, std::size_t global_index2, double tran_mult);
 
+    /// \brief Stores NNC not coinciding with entries in EDITNNCR
     std::vector<NNCdata> m_input;
+    /// \brief EDITNNC data not coinciding with entries in EDITNNCR.
     std::vector<NNCdata> m_edit;
+    /// \brief EDITNNCR data.
+    std::vector<NNCdata> m_editr;
     std::optional<KeywordLocation> m_nnc_location;
     std::optional<KeywordLocation> m_edit_location;
+    std::optional<KeywordLocation> m_editr_location;
 };
 
 

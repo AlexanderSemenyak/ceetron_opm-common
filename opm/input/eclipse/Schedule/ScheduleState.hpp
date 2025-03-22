@@ -20,39 +20,31 @@
 #ifndef SCHEDULE_TSTEP_HPP
 #define SCHEDULE_TSTEP_HPP
 
-#include <chrono>
-#include <cstddef>
-#include <memory>
-#include <optional>
-#include <unordered_map>
-
 #include <opm/input/eclipse/Deck/DeckKeyword.hpp>
 #include <opm/common/utility/TimeService.hpp>
 
-#include <opm/input/eclipse/Schedule/RPTConfig.hpp>
+#include <opm/input/eclipse/EclipseState/Runspec.hpp>
+#include <opm/input/eclipse/EclipseState/Aquifer/AquiferFlux.hpp>
 #include <opm/input/eclipse/Schedule/Well/PAvg.hpp>
 #include <opm/input/eclipse/Schedule/Tuning.hpp>
 #include <opm/input/eclipse/Schedule/OilVaporizationProperties.hpp>
 #include <opm/input/eclipse/Schedule/Events.hpp>
+#include <opm/input/eclipse/Schedule/BCProp.hpp>
+#include <opm/input/eclipse/Schedule/Source.hpp>
 #include <opm/input/eclipse/Schedule/Group/Group.hpp>
-#include <opm/input/eclipse/Schedule/Well/Well.hpp>
-#include <opm/input/eclipse/Schedule/Well/NameOrder.hpp>
-#include <opm/input/eclipse/Schedule/Well/WListManager.hpp>
+#include <opm/input/eclipse/Schedule/Well/WCYCLE.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellEnums.hpp>
 #include <opm/input/eclipse/Schedule/MessageLimits.hpp>
-#include <opm/input/eclipse/Schedule/Group/GConSump.hpp>
-#include <opm/input/eclipse/Schedule/Group/GConSale.hpp>
-#include <opm/input/eclipse/Schedule/Network/ExtNetwork.hpp>
-#include <opm/input/eclipse/Schedule/Network/Balance.hpp>
 #include <opm/input/eclipse/Schedule/VFPProdTable.hpp>
 #include <opm/input/eclipse/Schedule/VFPInjTable.hpp>
-#include <opm/input/eclipse/Schedule/Action/Actions.hpp>
-#include <opm/input/eclipse/Schedule/UDQ/UDQActive.hpp>
-#include <opm/input/eclipse/Schedule/UDQ/UDQConfig.hpp>
-#include <opm/input/eclipse/Schedule/Group/GuideRateConfig.hpp>
-#include <opm/input/eclipse/Schedule/GasLiftOpt.hpp>
-#include <opm/input/eclipse/Schedule/RFTConfig.hpp>
 #include <opm/input/eclipse/Schedule/RSTConfig.hpp>
 
+#include <cstddef>
+#include <memory>
+#include <optional>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
 
 namespace {
 
@@ -65,7 +57,33 @@ namespace {
 }
 
 }
+
 namespace Opm {
+
+    namespace Action {
+        class Actions;
+    }
+    class GasLiftOpt;
+    class GConSale;
+    class GConSump;
+    class GroupEconProductionLimits;
+    class GroupOrder;
+    class GuideRateConfig;
+    class NameOrder;
+    namespace Network {
+        class Balance;
+        class ExtNetwork;
+    }
+    namespace ReservoirCoupling {
+        class CouplingInfo;
+    }
+    class RFTConfig;
+    class RPTConfig;
+    class UDQActive;
+    class UDQConfig;
+    class Well;
+    class WellTestConfig;
+    class WListManager;
 
     /*
       The purpose of the ScheduleState class is to hold the entire Schedule
@@ -73,10 +91,6 @@ namespace Opm {
       time. The ScheduleState class itself has no dynamic behavior, the dynamics
       is handled by the Schedule instance owning the ScheduleState instance.
     */
-
-    class WellTestConfig;
-
-
 
     class ScheduleState {
     public:
@@ -128,6 +142,12 @@ namespace Opm {
 
             const T& operator()() const {
                 return *this->m_data;
+            }
+
+            template<class Serializer>
+            void serializeOp(Serializer& serializer)
+            {
+                serializer(m_data);
             }
 
         private:
@@ -264,12 +284,38 @@ namespace Opm {
                 return map_object;
             }
 
+            template<class Serializer>
+            void serializeOp(Serializer& serializer)
+            {
+                serializer(m_data);
+            }
 
         private:
             std::unordered_map<K, std::shared_ptr<T>> m_data;
         };
 
+        struct BHPDefaults {
+            std::optional<double> prod_target;
+            std::optional<double> inj_limit;
 
+            static BHPDefaults serializationTestObject()
+            {
+                return BHPDefaults{1.0, 2.0};
+            }
+
+            bool operator==(const BHPDefaults& rhs) const
+            {
+                return this->prod_target == rhs.prod_target
+                    && this->inj_limit == rhs.inj_limit;
+            }
+
+            template<class Serializer>
+            void serializeOp(Serializer& serializer)
+            {
+                serializer(prod_target);
+                serializer(inj_limit);
+            }
+        };
 
         ScheduleState() = default;
         explicit ScheduleState(const time_point& start_time);
@@ -300,7 +346,7 @@ namespace Opm {
         void update_tuning(Tuning tuning);
         Tuning& tuning();
         const Tuning& tuning() const;
-        double max_next_tstep() const;
+        double max_next_tstep(const bool enableTUNING = false) const;
 
         void init_nupcol(Nupcol nupcol);
         void update_nupcol(int nupcol);
@@ -326,8 +372,8 @@ namespace Opm {
         MessageLimits& message_limits();
         const MessageLimits& message_limits() const;
 
-        Well::ProducerCMode whistctl() const;
-        void update_whistctl(Well::ProducerCMode whistctl);
+        WellProducerCMode whistctl() const;
+        void update_whistctl(WellProducerCMode whistctl);
 
         bool rst_file(const RSTConfig& rst_config, const time_point& previous_restart_output_time) const;
         void update_date(const time_point& prev_time);
@@ -342,10 +388,16 @@ namespace Opm {
 
         bool has_gpmaint() const;
 
+        bool hasAnalyticalAquifers() const
+        {
+            return ! this->aqufluxs.empty();
+        }
+
         /*********************************************************************/
 
         ptr_member<GConSale> gconsale;
         ptr_member<GConSump> gconsump;
+        ptr_member<GroupEconProductionLimits> gecon;
         ptr_member<GuideRateConfig> guide_rate;
 
         ptr_member<WListManager> wlist_manager;
@@ -361,55 +413,26 @@ namespace Opm {
         ptr_member<GasLiftOpt> glo;
         ptr_member<Network::ExtNetwork> network;
         ptr_member<Network::Balance> network_balance;
+        ptr_member<ReservoirCoupling::CouplingInfo> rescoup;
 
         ptr_member<RPTConfig> rpt_config;
         ptr_member<RFTConfig> rft_config;
         ptr_member<RSTConfig> rst_config;
 
-        template <typename T> struct always_false1 : std::false_type {};
+        ptr_member<BHPDefaults> bhp_defaults;
+        ptr_member<Source> source;
+        ptr_member<WCYCLE> wcycle;
 
         template <typename T>
         ptr_member<T>& get() {
-            if constexpr ( std::is_same_v<T, PAvg> )
-                             return this->pavg;
-            else if constexpr ( std::is_same_v<T, WellTestConfig> )
-                                  return this->wtest_config;
-            else if constexpr ( std::is_same_v<T, GConSale> )
-                                  return this->gconsale;
-            else if constexpr ( std::is_same_v<T, GConSump> )
-                                  return this->gconsump;
-            else if constexpr ( std::is_same_v<T, WListManager> )
-                                  return this->wlist_manager;
-            else if constexpr ( std::is_same_v<T, Network::ExtNetwork> )
-                                  return this->network;
-            else if constexpr ( std::is_same_v<T, Network::Balance> )
-                                  return this->network_balance;
-            else if constexpr ( std::is_same_v<T, RPTConfig> )
-                                  return this->rpt_config;
-            else if constexpr ( std::is_same_v<T, Action::Actions> )
-                                  return this->actions;
-            else if constexpr ( std::is_same_v<T, UDQActive> )
-                                  return this->udq_active;
-            else if constexpr ( std::is_same_v<T, NameOrder> )
-                                  return this->well_order;
-            else if constexpr ( std::is_same_v<T, GroupOrder> )
-                                  return this->group_order;
-            else if constexpr ( std::is_same_v<T, UDQConfig> )
-                                  return this->udq;
-            else if constexpr ( std::is_same_v<T, GasLiftOpt> )
-                                  return this->glo;
-            else if constexpr ( std::is_same_v<T, GuideRateConfig> )
-                                  return this->guide_rate;
-            else if constexpr ( std::is_same_v<T, RFTConfig> )
-                                  return this->rft_config;
-            else if constexpr ( std::is_same_v<T, RSTConfig> )
-                                  return this->rst_config;
-            else
-                static_assert(always_false1<T>::value, "Template type <T> not supported in get()");
+            return const_cast<ptr_member<T>&>(std::as_const(*this).template get<T>());
         }
 
         template <typename T>
-        const ptr_member<T>& get() const {
+        const ptr_member<T>& get() const
+        {
+            struct always_false1 : std::false_type {};
+
             if constexpr ( std::is_same_v<T, PAvg> )
                              return this->pavg;
             else if constexpr ( std::is_same_v<T, WellTestConfig> )
@@ -418,12 +441,16 @@ namespace Opm {
                                   return this->gconsale;
             else if constexpr ( std::is_same_v<T, GConSump> )
                                   return this->gconsump;
+            else if constexpr ( std::is_same_v<T, GroupEconProductionLimits> )
+                                  return this->gecon;
             else if constexpr ( std::is_same_v<T, WListManager> )
                                   return this->wlist_manager;
             else if constexpr ( std::is_same_v<T, Network::ExtNetwork> )
                                   return this->network;
             else if constexpr ( std::is_same_v<T, Network::Balance> )
                                   return this->network_balance;
+            else if constexpr ( std::is_same_v<T, ReservoirCoupling::CouplingInfo> )
+                                  return this->rescoup;
             else if constexpr ( std::is_same_v<T, RPTConfig> )
                                   return this->rpt_config;
             else if constexpr ( std::is_same_v<T, Action::Actions> )
@@ -444,14 +471,21 @@ namespace Opm {
                                   return this->rft_config;
             else if constexpr ( std::is_same_v<T, RSTConfig> )
                                   return this->rst_config;
+            else if constexpr ( std::is_same_v<T, BHPDefaults> )
+                                  return this->bhp_defaults;
+            else if constexpr ( std::is_same_v<T, Source> )
+                                  return this->source;
+            else if constexpr ( std::is_same_v<T, WCYCLE> )
+                                  return this->wcycle;
             else
-                static_assert(always_false1<T>::value, "Template type <T> not supported in get()");
+                static_assert(always_false1::value, "Template type <T> not supported in get()");
         }
 
 
-        template <typename K, typename T> struct always_false2 : std::false_type {};
         template <typename K, typename T>
-        map_member<K,T>& get_map() {
+        map_member<K,T>& get_map()
+        {
+            struct always_false2 : std::false_type {};
             if constexpr ( std::is_same_v<T, VFPProdTable> )
                              return this->vfpprod;
             else if constexpr ( std::is_same_v<T, VFPInjTable> )
@@ -461,20 +495,54 @@ namespace Opm {
             else if constexpr ( std::is_same_v<T, Well> )
                                   return this->wells;
             else
-                static_assert(always_false2<K,T>::value, "Template type <K,T> not supported in get_map()");
+                static_assert(always_false2::value, "Template type <K,T> not supported in get_map()");
         }
 
         map_member<int, VFPProdTable> vfpprod;
         map_member<int, VFPInjTable> vfpinj;
         map_member<std::string, Group> groups;
         map_member<std::string, Well> wells;
+        // constant flux aquifers
+        std::unordered_map<int, SingleAquiferFlux> aqufluxs;
+        BCProp bcprop;
         std::unordered_map<std::string, double> target_wellpi;
         std::optional<NextStep> next_tstep;
 
 
         using WellPIMapType = std::unordered_map<std::string, double>;
         template<class Serializer>
-        void serializeOp(Serializer& serializer) {
+        void serializeOp(Serializer& serializer)
+        {
+            serializer(gconsale);
+            serializer(gconsump);
+            serializer(gecon);
+            serializer(guide_rate);
+            serializer(wlist_manager);
+            serializer(well_order);
+            serializer(group_order);
+            serializer(actions);
+            serializer(udq);
+            serializer(udq_active);
+            serializer(pavg);
+            serializer(wtest_config);
+            serializer(glo);
+            serializer(network);
+            serializer(network_balance);
+            serializer(rescoup);
+            serializer(rpt_config);
+            serializer(rft_config);
+            serializer(rst_config);
+            serializer(bhp_defaults);
+            serializer(source);
+            serializer(wcycle);
+            serializer(vfpprod);
+            serializer(vfpinj);
+            serializer(groups);
+            serializer(wells);
+            serializer(aqufluxs);
+            serializer(bcprop);
+            serializer(target_wellpi);
+            serializer(this->next_tstep);
             serializer(m_start_time);
             serializer(m_end_time);
             serializer(m_sim_step);
@@ -483,9 +551,6 @@ namespace Opm {
             serializer(m_first_in_year);
             serializer(m_first_in_month);
             serializer(m_save_step);
-            serializer(m_sumthin);
-            serializer(this->m_rptonly);
-            serializer(this->next_tstep);
             serializer(m_tuning);
             serializer(m_nupcol);
             serializer(m_oilvap);
@@ -494,30 +559,30 @@ namespace Opm {
             serializer(m_geo_keywords);
             serializer(m_message_limits);
             serializer(m_whistctl_mode);
-            serializer(target_wellpi);
+            serializer(m_sumthin);
+            serializer(this->m_rptonly);
         }
 
-
     private:
-        time_point m_start_time;
-        std::optional<time_point> m_end_time;
+        time_point m_start_time{};
+        std::optional<time_point> m_end_time{};
 
         std::size_t m_sim_step = 0;
         std::size_t m_month_num = 0;
         std::size_t m_year_num = 0;
-        bool m_first_in_month;
-        bool m_first_in_year;
+        bool m_first_in_month{false};
+        bool m_first_in_year{false};
         bool m_save_step{false};
 
-        Tuning m_tuning;
-        Nupcol m_nupcol;
-        OilVaporizationProperties m_oilvap;
-        Events m_events;
-        WellGroupEvents m_wellgroup_events;
-        std::vector<DeckKeyword> m_geo_keywords;
-        MessageLimits m_message_limits;
-        Well::ProducerCMode m_whistctl_mode = Well::ProducerCMode::CMODE_UNDEFINED;
-        std::optional<double> m_sumthin;
+        Tuning m_tuning{};
+        Nupcol m_nupcol{};
+        OilVaporizationProperties m_oilvap{};
+        Events m_events{};
+        WellGroupEvents m_wellgroup_events{};
+        std::vector<DeckKeyword> m_geo_keywords{};
+        MessageLimits m_message_limits{};
+        WellProducerCMode m_whistctl_mode = WellProducerCMode::CMODE_UNDEFINED;
+        std::optional<double> m_sumthin{};
         bool m_rptonly{false};
     };
 }

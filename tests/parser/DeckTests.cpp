@@ -39,7 +39,7 @@
 #include <opm/input/eclipse/Parser/ParserRecord.hpp>
 #include <opm/common/OpmLog/KeywordLocation.hpp>
 
-#include "src/opm/input/eclipse/Parser/raw/RawRecord.hpp"
+#include "../../opm/input/eclipse/Parser/raw/RawRecord.hpp"
 
 using namespace Opm;
 
@@ -744,8 +744,8 @@ COMPDAT
 /
 
 WCONPROD
-  'P1' 'OPEN' 'ORAT'  123.4  0.0  0.0  0.0  0.0 100 100 42 'UDA' /
-  'P2' 'OPEN' 'ORAT'  123.4  0.0  0.0  0.0  0.0 100 100 43 'UDA' /
+  'P1' 'OPEN' 'ORAT'  123.4  0.0  0.0  0.0  0.0 100 100 42 'FUDA' /
+  'P2' 'OPEN' 'ORAT'  123.4  0.0  0.0  0.0  0.0 100 100 43 'FUDA' /
 /
 
 DATES
@@ -805,8 +805,8 @@ DATES
                                          "SCHEDULE", "VFPPROD", "VFPPROD", "WELSPECS", "COMPDAT", "WCONPROD",
                                          "DATES", "DATES", "DATES"};
     std::vector<std::string> actual;
-    for (const auto& kw : dw)
-        actual.push_back(kw.name());
+    std::transform(dw.begin(), dw.end(), std::back_inserter(actual),
+                   [](const auto& kw) { return kw.name(); });
 
     BOOST_CHECK( actual == expected );
 

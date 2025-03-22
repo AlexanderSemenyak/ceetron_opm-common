@@ -17,44 +17,66 @@
 */
 #include "config.h"
 
-#include <cstdlib>
+#define BOOST_TEST_MODULE Restart_File_IO
 
-#define BOOST_TEST_MODULE EclipseIO
 #include <boost/test/unit_test.hpp>
 
+#include <opm/output/data/Cells.hpp>
+#include <opm/output/data/Groups.hpp>
+#include <opm/output/data/Wells.hpp>
 #include <opm/output/eclipse/AggregateAquiferData.hpp>
 #include <opm/output/eclipse/EclipseIO.hpp>
 #include <opm/output/eclipse/RestartIO.hpp>
 #include <opm/output/eclipse/RestartValue.hpp>
-#include <opm/output/data/Cells.hpp>
-#include <opm/output/data/Wells.hpp>
-#include <opm/output/data/Groups.hpp>
-#include <opm/input/eclipse/Python/Python.hpp>
+
+#include <opm/io/eclipse/ERst.hpp>
+#include <opm/io/eclipse/EclIOdata.hpp>
+#include <opm/io/eclipse/OutputStream.hpp>
 
 #include <opm/input/eclipse/EclipseState/EclipseState.hpp>
-#include <opm/input/eclipse/EclipseState/Tables/Eqldims.hpp>
-#include <opm/input/eclipse/Deck/Deck.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/EclipseGrid.hpp>
+#include <opm/input/eclipse/EclipseState/Grid/FIPRegionStatistics.hpp>
+#include <opm/input/eclipse/EclipseState/Grid/RegionSetMatcher.hpp>
 #include <opm/input/eclipse/EclipseState/IOConfig/IOConfig.hpp>
-#include <opm/input/eclipse/Schedule/Schedule.hpp>
 #include <opm/input/eclipse/EclipseState/SummaryConfig/SummaryConfig.hpp>
-#include <opm/input/eclipse/Parser/Parser.hpp>
-#include <opm/input/eclipse/Utility/Functional.hpp>
-#include <opm/input/eclipse/Schedule/SummaryState.hpp>
+#include <opm/input/eclipse/EclipseState/Tables/Eqldims.hpp>
+
+#include <opm/input/eclipse/Python/Python.hpp>
+
 #include <opm/input/eclipse/Schedule/Action/State.hpp>
+#include <opm/input/eclipse/Schedule/MSW/SegmentMatcher.hpp>
+#include <opm/input/eclipse/Schedule/Schedule.hpp>
+#include <opm/input/eclipse/Schedule/ScheduleState.hpp>
+#include <opm/input/eclipse/Schedule/SummaryState.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQConfig.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQEnums.hpp>
 #include <opm/input/eclipse/Schedule/UDQ/UDQState.hpp>
+#include <opm/input/eclipse/Schedule/Well/Well.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellConnections.hpp>
+#include <opm/input/eclipse/Schedule/Well/WellMatcher.hpp>
 #include <opm/input/eclipse/Schedule/Well/WellTestState.hpp>
 
-#include <opm/io/eclipse/OutputStream.hpp>
-#include <opm/io/eclipse/EclIOdata.hpp>
-#include <opm/io/eclipse/ERst.hpp>
-
-#include <sstream>
-#include <tuple>
+#include <opm/input/eclipse/Utility/Functional.hpp>
 
 #include <opm/common/utility/TimeService.hpp>
+
+#include <opm/input/eclipse/Deck/Deck.hpp>
+
+#include <opm/input/eclipse/Parser/Parser.hpp>
+
+#include <algorithm>
+#include <cstdlib>
+#include <ctime>
+#include <map>
+#include <memory>
+#include <numeric>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <vector>
 
 #include <tests/WorkArea.hpp>
 
@@ -64,14 +86,15 @@ namespace {
     int ecl_file_get_num_named_kw(Opm::EclIO::ERst&  rst,
                                   const std::string& kw)
     {
-        int count = 0;
-        for (const auto& step : rst.listOfReportStepNumbers()) {
-            for (const auto& vec : rst.listOfRstArrays(step)) {
-                count += std::get<0>(vec) == kw;
-            }
-        }
-
-        return count;
+        return std::accumulate(rst.listOfReportStepNumbers().begin(),
+                               rst.listOfReportStepNumbers().end(), 0,
+                               [&kw, &rst](const auto count, const auto step)
+                               {
+                                   const auto list = rst.listOfRstArrays(step);
+                                   return count + std::count_if(list.begin(), list.end(),
+                                                                [&kw](const auto& vec)
+                                                                { return std::get<0>(vec) == kw; });
+                               });
     }
 
     EclIO::EclFile::EclEntry
@@ -79,10 +102,13 @@ namespace {
                            const std::string& kw,
                            const int          seqnum)
     {
-        for (const auto& vec : rst.listOfRstArrays(seqnum)) {
-            if (std::get<0>(vec) == kw) {
-                return vec;
-            }
+        const auto list = rst.listOfRstArrays(seqnum);
+        const auto it = std::find_if(list.begin(),
+                                     list.end(),
+                                     [&kw](const auto& vec)
+                                     { return std::get<0>(vec) == kw; });
+        if (it != list.end()) {
+            return *it;
         }
 
         return EclIO::EclFile::EclEntry{ "NoSuchKeyword", Opm::EclIO::eclArrType::MESS, 0 };
@@ -92,60 +118,14 @@ namespace {
     {
         return std::get<1>(vec);
     }
-}
 
-
-namespace Opm {
-namespace data {
-
-/*
- * Some test specific equivalence definitions and pretty-printing. Not fit as a
- * general purpose implementation, but does its job for testing and
- * pretty-pringing for debugging purposes.
- */
-
-std::ostream& operator<<( std::ostream& stream, const Rates& r ) {
-    return stream << "{ "
-                  << "wat: " << r.get( Rates::opt::wat, 0.0 ) << ", "
-                  << "oil: " << r.get( Rates::opt::oil, 0.0 ) << ", "
-                  << "gas: " << r.get( Rates::opt::gas, 0.0 ) << " "
-                  << "}";
-}
-
-std::ostream& operator<<( std::ostream& stream, const Connection& c ) {
-    return stream << "{ index: "
-                  << c.index << ", "
-                  << c.rates << ", "
-                  << c.pressure << " }";
-}
-
-std::ostream& operator<<( std::ostream& stream,
-                          const std::map< std::string, Well >& m ) {
-    stream << "\n";
-
-    for( const auto& p : m ) {
-        stream << p.first << ": \n"
-               << "\t" << "bhp: " << p.second.bhp << "\n"
-               << "\t" << "temp: " << p.second.temperature << "\n"
-               << "\t" << "rates: " << p.second.rates << "\n"
-               << "\t" << "connections: [\n";
-
-        for( const auto& c : p.second.connections )
-            stream << c << " ";
-
-        stream << "]\n";
-    }
-
-    return stream;
-}
-
-}
-
-data::GroupAndNetworkValues mkGroups() {
+data::GroupAndNetworkValues mkGroups()
+{
     return {};
 }
 
-data::Wells mkWells() {
+data::Wells mkWells()
+{
     data::Rates r1, r2, rc1, rc2, rc3;
     r1.set( data::Rates::opt::wat, 5.67 );
     r1.set( data::Rates::opt::oil, 6.78 );
@@ -178,15 +158,16 @@ data::Wells mkWells() {
      *  the completion keys (active indices) and well names correspond to the
      *  input deck. All other entries in the well structures are arbitrary.
      */
-    w1.connections.push_back( { 88, rc1, 30.45, 123.4, 543.21, 0.62, 0.15, 1.0e3, 1.234 } );
-    w1.connections.push_back( { 288, rc2, 33.19, 123.4, 432.1, 0.26, 0.45, 2.56, 2.345 } );
+    Opm::data::ConnectionFiltrate con_filtrate {0.1, 1, 3, 0.4, 1.e-9, 0.2, 0.05, 10.}; // values are not used in this test
+    w1.connections.push_back( { 88, rc1, 30.45, 123.4, 543.21, 0.62, 0.15, 1.0e3, 1.234, 0.0, 1.23, con_filtrate } );
+    w1.connections.push_back( { 288, rc2, 33.19, 123.4, 432.1, 0.26, 0.45, 2.56, 2.345, 0.0, 0.98, con_filtrate } );
 
     w2.rates = r2;
     w2.thp = 2.0;
     w2.bhp = 2.34;
     w2.temperature = 4.56;
     w2.control = 2;
-    w2.connections.push_back( { 188, rc3, 36.22, 123.4, 256.1, 0.55, 0.0125, 314.15, 3.456 } );
+    w2.connections.push_back( { 188, rc3, 36.22, 123.4, 256.1, 0.55, 0.0125, 314.15, 3.456, 0.0, 2.46, con_filtrate } );
 
     {
         data::Wells wellRates;
@@ -198,36 +179,65 @@ data::Wells mkWells() {
     }
 }
 
-data::Solution mkSolution( int numCells ) {
-
+data::Solution mkSolution(int numCells)
+{
     using measure = UnitSystem::measure;
-    using namespace data;
 
-    data::Solution sol = {
-        { "PRESSURE", { measure::pressure, std::vector<double>( numCells ), TargetType::RESTART_SOLUTION } },
-        { "TEMP", { measure::temperature,  std::vector<double>( numCells ), TargetType::RESTART_SOLUTION } },
-        { "SWAT", { measure::identity,     std::vector<double>( numCells ), TargetType::RESTART_SOLUTION } },
-        { "SGAS", { measure::identity,     std::vector<double>( numCells ), TargetType::RESTART_SOLUTION } }
+    auto sol = data::Solution {
+        { "PRESSURE", data::CellData { measure::pressure,    {}, data::TargetType::RESTART_SOLUTION } },
+        { "TEMP",     data::CellData { measure::temperature, {}, data::TargetType::RESTART_SOLUTION } },
+        { "SWAT",     data::CellData { measure::identity,    {}, data::TargetType::RESTART_SOLUTION } },
+        { "SGAS",     data::CellData { measure::identity,    {}, data::TargetType::RESTART_SOLUTION } },
     };
 
+    sol.data<double>("PRESSURE").assign( numCells, 6.0 );
+    sol.data<double>("TEMP").assign( numCells, 7.0 );
+    sol.data<double>("SWAT").assign( numCells, 8.0 );
+    sol.data<double>("SGAS").assign( numCells, 9.0 );
 
-    sol.data("PRESSURE").assign( numCells, 6.0 );
-    sol.data("TEMP").assign( numCells, 7.0 );
-    sol.data("SWAT").assign( numCells, 8.0 );
-    sol.data("SGAS").assign( numCells, 9.0 );
+    fun::iota rsi( 300.0, 300.0 + numCells );
+    fun::iota rvi( 400.0, 400.0 + numCells );
 
-    fun::iota rsi( 300, 300 + numCells );
-    fun::iota rvi( 400, 400 + numCells );
+    sol.insert("RS", measure::identity,
+               std::vector<double>{ rsi.begin(), rsi.end() },
+               data::TargetType::RESTART_SOLUTION);
+    sol.insert("RV", measure::identity,
+               std::vector<double>{ rvi.begin(), rvi.end() },
+               data::TargetType::RESTART_SOLUTION);
 
-    sol.insert( "RS", measure::identity, { rsi.begin(), rsi.end() } , TargetType::RESTART_SOLUTION );
-    sol.insert( "RV", measure::identity, { rvi.begin(), rvi.end() } , TargetType::RESTART_SOLUTION );
+    return sol;
+}
+
+data::Solution mkSolutionFIP(const int numCells)
+{
+    using measure = UnitSystem::measure;
+
+    auto sol = data::Solution {
+        { "PRESSURE", data::CellData { measure::pressure, {}, data::TargetType::RESTART_SOLUTION } },
+        { "SWAT",     data::CellData { measure::identity, {}, data::TargetType::RESTART_SOLUTION } },
+        { "SGAS",     data::CellData { measure::identity, {}, data::TargetType::RESTART_SOLUTION } },
+        { "FIPOIL",   data::CellData { measure::identity, {}, data::TargetType::RESTART_SOLUTION } },
+        { "FIPWAT",   data::CellData { measure::identity, {}, data::TargetType::RESTART_SOLUTION } },
+        { "FIPGAS",   data::CellData { measure::identity, {}, data::TargetType::RESTART_SOLUTION } },
+    };
+
+    sol.data<double>("PRESSURE").assign(numCells, 6.0);
+    sol.data<double>("SWAT").assign(numCells, 8.0);
+    sol.data<double>("SGAS").assign(numCells, 9.0);
+    sol.data<double>("FIPOIL").assign(numCells, 10.0);
+    sol.data<double>("FIPWAT").assign(numCells, 11.0);
+    sol.data<double>("FIPGAS").assign(numCells, 12.0);
 
     return sol;
 }
 
 Opm::SummaryState sim_state(const Opm::Schedule& sched)
 {
-    auto state = Opm::SummaryState{TimeService::now()};
+    auto state = Opm::SummaryState {
+        TimeService::now(),
+        sched.back().udq().params().undefinedValue()
+    };
+
     for (const auto& well : sched.getWellsatEnd()) {
         for (const auto& connection : well.getConnections()) {
             state.update_conn_var(well.name(), "CPR", connection.global_index() + 1, 111);
@@ -381,90 +391,110 @@ Opm::SummaryState sim_state(const Opm::Schedule& sched)
     return state;
 }
 
-struct Setup {
+struct Setup
+{
     Deck deck;
     EclipseState es;
     const EclipseGrid& grid;
-    std::shared_ptr<Python> python;
     Schedule schedule;
     SummaryConfig summary_config;
 
-    Setup( const char* path) :
-        deck( Parser().parseFile( path) ),
-        es( deck),
-        grid( es.getInputGrid( ) ),
-        python( std::make_shared<Python>() ),
-        schedule( deck, es, python ),
-        summary_config( deck, schedule, es.fieldProps(), es.aquifer() )
+    explicit Setup(const char* path)
+        : deck          ( Parser().parseFile( path) )
+        , es            ( deck)
+        , grid          ( es.getInputGrid( ) )
+        , schedule      ( deck, es, std::make_shared<Python>() )
+        , summary_config( deck, schedule, es.fieldProps(), es.aquifer() )
     {
         auto& io_config = es.getIOConfig();
         io_config.setEclCompatibleRST(false);
     }
-
 };
 
-
-
-RestartValue first_sim(const Setup& setup, Action::State& action_state, SummaryState& st, UDQState& udq_state, bool write_double) {
+RestartValue
+first_sim(const Setup&         setup,
+          const Action::State& action_state,
+          SummaryState&        st,
+          UDQState&            udq_state,
+          bool                 write_double)
+{
     WellTestState wtest_state;
-    EclipseIO eclWriter( setup.es, setup.grid, setup.schedule, setup.summary_config);
-    auto num_cells = setup.grid.getNumActive( );
-    int report_step = 1;
-    auto start_time = setup.schedule.getStartTime();
-    auto first_step = setup.schedule.simTime(report_step);
+    EclipseIO eclWriter(setup.es, setup.grid, setup.schedule, setup.summary_config);
 
-    auto sol = mkSolution( num_cells );
-    auto wells = mkWells();
-    auto groups = mkGroups();
+    const auto num_cells = setup.grid.getNumActive( );
+    const int report_step = 1;
+    const auto start_time = setup.schedule.getStartTime();
+    const auto first_step = setup.schedule.simTime(report_step);
+
+    const auto sol = mkSolution(num_cells);
+    const auto wells = mkWells();
+    const auto groups = mkGroups();
     const auto& udq = setup.schedule.getUDQConfig(report_step);
-    RestartValue restart_value(sol, wells, groups, {});
+    auto segmentMatcherFactory = []() { return std::make_unique<SegmentMatcher>(ScheduleState{}); };
+    auto regionSetMatcherFactory = []() { return std::make_unique<RegionSetMatcher>(FIPRegionStatistics {}); };
 
-    udq.eval(report_step, setup.schedule.wellMatcher(report_step), st, udq_state);
-    eclWriter.writeTimeStep( action_state,
-                             wtest_state,
-                             st,
-                             udq_state,
-                             report_step,
-                             false,
-                             std::difftime(first_step, start_time),
-                             restart_value,
-                             write_double);
+    udq.eval(report_step,
+             setup.schedule.wellMatcher(report_step),
+             segmentMatcherFactory,
+             regionSetMatcherFactory,
+             st, udq_state);
+
+    RestartValue restart_value(sol, wells, groups, {});
+    eclWriter.writeTimeStep(action_state,
+                            wtest_state,
+                            st,
+                            udq_state,
+                            report_step,
+                            false,
+                            std::difftime(first_step, start_time),
+                            restart_value,
+                            write_double);
 
     return restart_value;
 }
 
-RestartValue second_sim(const Setup& setup, Action::State& action_state, SummaryState& summary_state, const std::vector<RestartKey>& solution_keys) {
+RestartValue
+second_sim(const Setup&                   setup,
+           Action::State&                 action_state,
+           SummaryState&                  summary_state,
+           const std::vector<RestartKey>& solution_keys)
+{
     EclipseIO writer(setup.es, setup.grid, setup.schedule, setup.summary_config);
-    return writer.loadRestart( action_state, summary_state, solution_keys );
+    return writer.loadRestart(action_state, summary_state, solution_keys);
 }
 
-
-void compare( const RestartValue& fst,
-              const RestartValue& snd,
-              const std::vector<RestartKey>& solution_keys) {
-
+void compare(const RestartValue&            fst,
+             const RestartValue&            snd,
+             const std::vector<RestartKey>& solution_keys)
+{
     for (const auto& value : solution_keys) {
-        double tol = 0.00001;
-        const std::string& key = value.key;
-        auto first = fst.solution.data( key ).begin();
-        auto second = snd.solution.data( key ).begin();
+        auto tol = 0.00001;
+        const auto& key = value.key;
 
-        if (key == "TEMP")
-            tol *= 10;
+        if (key == "TEMP") {
+            tol *= 10.0;
+        }
 
-        for( ; first != fst.solution.data( key).end(); ++first, ++second )
-            BOOST_CHECK_CLOSE( *first, *second, tol );
+        auto first = fst.solution.data<double>(key).begin();
+        auto second = snd.solution.data<double>(key).begin();
+
+        for (; first != fst.solution.data<double>(key).end(); ++first, ++second) {
+            BOOST_CHECK_CLOSE(*first, *second, tol);
+        }
     }
 }
 
+} // Anonymous namespace
 
+BOOST_AUTO_TEST_CASE(EclipseReadWriteWellStateData)
+{
+    const std::vector<RestartKey> keys {
+        {"PRESSURE" , UnitSystem::measure::pressure},
+        {"SWAT" , UnitSystem::measure::identity},
+        {"SGAS" , UnitSystem::measure::identity},
+        {"TEMP" , UnitSystem::measure::temperature},
+    };
 
-
-BOOST_AUTO_TEST_CASE(EclipseReadWriteWellStateData) {
-    std::vector<RestartKey> keys {{"PRESSURE" , UnitSystem::measure::pressure},
-                                  {"SWAT" , UnitSystem::measure::identity},
-                                  {"SGAS" , UnitSystem::measure::identity},
-                                  {"TEMP" , UnitSystem::measure::temperature}};
     WorkArea test_area("test_restart");
     test_area.copyIn("BASE_SIM.DATA");
     test_area.copyIn("RESTART_SIM.DATA");
@@ -473,18 +503,18 @@ BOOST_AUTO_TEST_CASE(EclipseReadWriteWellStateData) {
     auto st = sim_state(base_setup.schedule);
     Action::State action_state;
     UDQState udq_state(19);
-    auto state1 = first_sim( base_setup , action_state, st, udq_state, false );
+    const auto state1 = first_sim( base_setup , action_state, st, udq_state, false );
 
     Setup restart_setup("RESTART_SIM.DATA");
-    auto state2 = second_sim( restart_setup , action_state, st , keys );
+    const auto state2 = second_sim( restart_setup , action_state, st , keys );
     compare(state1, state2 , keys);
 
     BOOST_CHECK_THROW( second_sim( restart_setup, action_state, st, {{"SOIL", UnitSystem::measure::pressure}} ) , std::runtime_error );
     BOOST_CHECK_THROW( second_sim( restart_setup, action_state, st, {{"SOIL", UnitSystem::measure::pressure, true}}) , std::runtime_error );
 }
 
-
-BOOST_AUTO_TEST_CASE(ECL_FORMATTED) {
+BOOST_AUTO_TEST_CASE(ECL_FORMATTED)
+{
     namespace OS = ::Opm::EclIO::OutputStream;
 
     WorkArea test_area("test_Restart");
@@ -506,7 +536,7 @@ BOOST_AUTO_TEST_CASE(ECL_FORMATTED) {
             RestartValue restart_value(cells, wells, groups, {});
 
             io_config.setEclCompatibleRST( false );
-            restart_value.addExtra("EXTRA", UnitSystem::measure::pressure, {10,1,2,3});
+            restart_value.addExtra("EXTRA", UnitSystem::measure::pressure, std::vector<double>{10.0,1.0,2.0,3.0});
 
             const auto outputDir = test_area.currentWorkingDirectory();
 
@@ -571,32 +601,32 @@ BOOST_AUTO_TEST_CASE(ECL_FORMATTED) {
 
                 BOOST_CHECK_MESSAGE(rst.hasKey("SWAT"), "Restart file must have SWAT vector");
                 BOOST_CHECK_MESSAGE(!rst.hasKey("EXTRA"), "Restart file must NOT have EXTRA vector");
-                BOOST_CHECK_MESSAGE(!rst.hasKey("OPM_IWEL"), "Restart file must NOT have OPM_IWEL vector");
-                BOOST_CHECK_MESSAGE(!rst.hasKey("OPM_XWEL"), "Restart file must NOT have OPM_XWEL vector");
             }
         }
     }
 }
 
+namespace {
 
-
-
-
-void compare_equal( const RestartValue& fst,
-                    const RestartValue& snd ,
-                    const std::vector<RestartKey>& keys) {
-
+void compare_equal(const RestartValue&            fst,
+                   const RestartValue&            snd,
+                   const std::vector<RestartKey>& keys)
+{
     for (const auto& value : keys) {
         const std::string& key = value.key;
-        auto first = fst.solution.data( key ).begin();
-        auto second = snd.solution.data( key ).begin();
+        auto first = fst.solution.data<double>(key).begin();
+        auto second = snd.solution.data<double>(key).begin();
 
-        for( ; first != fst.solution.data( key ).end(); ++first, ++second )
-          BOOST_CHECK_EQUAL( *first, *second);
+        for (; first != fst.solution.data<double>(key).end(); ++first, ++second) {
+            BOOST_CHECK_EQUAL(*first, *second);
+        }
     }
 }
 
-BOOST_AUTO_TEST_CASE(EclipseReadWriteWellStateData_double) {
+} // Anonymous namespace
+
+BOOST_AUTO_TEST_CASE(EclipseReadWriteWellStateData_double)
+{
     /*
       Observe that the purpose of this test is to verify that with
       write_double == true we can load solution fields which are
@@ -623,8 +653,8 @@ BOOST_AUTO_TEST_CASE(EclipseReadWriteWellStateData_double) {
     compare_equal( state1 , state2 , solution_keys);
 }
 
-
-BOOST_AUTO_TEST_CASE(WriteWrongSOlutionSize) {
+BOOST_AUTO_TEST_CASE(WriteWrongSolutionSize)
+{
     namespace OS = ::Opm::EclIO::OutputStream;
 
     WorkArea test_area("test_Restart");
@@ -636,7 +666,7 @@ BOOST_AUTO_TEST_CASE(WriteWrongSOlutionSize) {
         auto cells = mkSolution( num_cells );
         auto wells = mkWells();
         auto groups = mkGroups();
-        Opm::SummaryState sumState(TimeService::now());
+        Opm::SummaryState sumState(TimeService::now(), 0.0);
         Opm::Action::State action_state;
         Opm::UDQState udq_state(19);
         Opm::WellTestState wtest_state;
@@ -663,8 +693,8 @@ BOOST_AUTO_TEST_CASE(WriteWrongSOlutionSize) {
     }
 }
 
-
-BOOST_AUTO_TEST_CASE(ExtraData_KEYS) {
+BOOST_AUTO_TEST_CASE(ExtraData_KEYS)
+{
     Setup setup("BASE_SIM.DATA");
     auto num_cells = setup.grid.getNumActive( );
     auto cells = mkSolution( num_cells );
@@ -672,20 +702,21 @@ BOOST_AUTO_TEST_CASE(ExtraData_KEYS) {
     auto groups = mkGroups();
     RestartValue restart_value(cells, wells, groups, {});
 
-    BOOST_CHECK_THROW( restart_value.addExtra("TOO-LONG-KEY", {0,1,2}), std::runtime_error);
+    BOOST_CHECK_THROW( restart_value.addExtra("TOO-LONG-KEY", std::vector{0.0,1.0,2.0}), std::runtime_error);
 
     // Keys must be unique
-    restart_value.addExtra("KEY", {0,1,1});
-    BOOST_CHECK_THROW( restart_value.addExtra("KEY", {0,1,1}), std::runtime_error);
+    restart_value.addExtra("KEY", std::vector{0.0,1.0,1.0});
+    BOOST_CHECK_THROW( restart_value.addExtra("KEY", std::vector{0.0,1.0,1.0}), std::runtime_error);
 
     /* The keys must be unique across solution and extra_data */
-    BOOST_CHECK_THROW( restart_value.addExtra("PRESSURE", {0,1}), std::runtime_error);
+    BOOST_CHECK_THROW( restart_value.addExtra("PRESSURE", std::vector{0.0,1.0}), std::runtime_error);
 
     /* Must avoid using reserved keys like 'LOGIHEAD' */
-    BOOST_CHECK_THROW( restart_value.addExtra("LOGIHEAD", {0,1}), std::runtime_error);
+    BOOST_CHECK_THROW( restart_value.addExtra("LOGIHEAD", std::vector{0.0,1.0}), std::runtime_error);
 }
 
-BOOST_AUTO_TEST_CASE(ExtraData_content) {
+BOOST_AUTO_TEST_CASE(ExtraData_content)
+{
     namespace OS = ::Opm::EclIO::OutputStream;
 
     WorkArea test_area("test_Restart");
@@ -704,10 +735,10 @@ BOOST_AUTO_TEST_CASE(ExtraData_content) {
         const auto& units = setup.es.getUnits();
         {
             RestartValue restart_value(cells, wells, groups, {});
-            SummaryState st(TimeService::now());
+            SummaryState st(TimeService::now(), 0.0);
             const auto sumState = sim_state(setup.schedule);
 
-            restart_value.addExtra("EXTRA", UnitSystem::measure::pressure, {10,1,2,3});
+            restart_value.addExtra("EXTRA", UnitSystem::measure::pressure, std::vector<double>{10.0,1.0,2.0,3.0});
 
             const auto outputDir = test_area.currentWorkingDirectory();
 
@@ -771,8 +802,8 @@ BOOST_AUTO_TEST_CASE(ExtraData_content) {
     }
 }
 
-
-BOOST_AUTO_TEST_CASE(STORE_THPRES) {
+BOOST_AUTO_TEST_CASE(STORE_THPRES)
+{
     namespace OS = ::Opm::EclIO::OutputStream;
 
     WorkArea test_area("test_Restart_THPRES");
@@ -802,7 +833,7 @@ BOOST_AUTO_TEST_CASE(STORE_THPRES) {
                                                setup.schedule), std::runtime_error);
             */
 
-            restart_value.addExtra("THRESHPR", UnitSystem::measure::pressure, {0,1});
+            restart_value.addExtra("THRESHPR", UnitSystem::measure::pressure, std::vector<double>{0.0,1.0});
             const auto sumState = sim_state(base_setup.schedule);
             Action::State action_state;
             UDQState udq_state(99);
@@ -881,8 +912,6 @@ BOOST_AUTO_TEST_CASE(STORE_THPRES) {
     }
 }
 
-
-
 BOOST_AUTO_TEST_CASE(Restore_Cumulatives)
 {
     WorkArea wa{"test_Restart"};
@@ -919,10 +948,10 @@ BOOST_AUTO_TEST_CASE(Restore_Cumulatives)
     }
 
     Action::State action_state;
-    SummaryState rstSumState(TimeService::now());
+    SummaryState rstSumState(TimeService::now(), 0.0);
     RestartIO::load(OS::outputFileName(rset, "UNRST"), seqnum, action_state, rstSumState,
                     /* solution_keys = */ {
-                                           RestartKey("SWAT", UnitSystem::measure::identity),
+                        RestartKey("SWAT", UnitSystem::measure::identity),
                     },
                     setup.es, setup.grid, setup.schedule,
                     /* extra_keys = */ {});
@@ -1041,7 +1070,10 @@ BOOST_AUTO_TEST_CASE(Restore_Cumulatives)
     BOOST_CHECK_CLOSE(rstSumState.get("FGITH"), 90123.45, 1.0e-10);
 }
 
-void init_st(SummaryState& st) {
+namespace {
+
+void init_st(SummaryState& st)
+{
     st.update_well_var("PROD1", "WOPR", 100);
     st.update_well_var("PROD1", "WLPR", 100);
     st.update_well_var("PROD2", "WOPR", 100);
@@ -1057,24 +1089,31 @@ void init_st(SummaryState& st) {
     st.update("FLPR", 100);
 }
 
-BOOST_AUTO_TEST_CASE(UDQ_RESTART) {
-    std::vector<RestartKey> keys {{"PRESSURE" , UnitSystem::measure::pressure},
+} // Anonymous namespace
+
+BOOST_AUTO_TEST_CASE(UDQ_RESTART)
+{
+    const std::vector<RestartKey> keys {
+        {"PRESSURE" , UnitSystem::measure::pressure},
         {"SWAT" , UnitSystem::measure::identity},
-        {"SGAS" , UnitSystem::measure::identity}};
+        {"SGAS" , UnitSystem::measure::identity},
+    };
+
     WorkArea test_area("test_udq_restart");
     test_area.copyIn("UDQ_BASE.DATA");
     test_area.copyIn("UDQ_RESTART.DATA");
 
     Setup base_setup("UDQ_BASE.DATA");
-    SummaryState st1(TimeService::now());
-    SummaryState st2(TimeService::now());
+    SummaryState st1(TimeService::now(), 0.0);
+    SummaryState st2(TimeService::now(), 0.0);
     Action::State action_state;
     UDQState udq_state(1);
     init_st(st1);
-    auto state1 = first_sim( base_setup , action_state, st1, udq_state, false );
+    const auto state1 = first_sim(base_setup, action_state, st1, udq_state, false);
 
     Setup restart_setup("UDQ_RESTART.DATA");
-    auto state2 = second_sim( restart_setup , action_state, st2 , keys );
+    const auto state2 = second_sim(restart_setup, action_state, st2, keys);
+
     BOOST_CHECK(st1.wells() == st2.wells());
     BOOST_CHECK(st1.groups() == st2.groups());
 
@@ -1082,53 +1121,70 @@ BOOST_AUTO_TEST_CASE(UDQ_RESTART) {
     for (const auto& well : st1.wells()) {
         for (const auto& def : udq.definitions(UDQVarType::WELL_VAR)) {
             const auto& kw = def.keyword();
-            BOOST_CHECK_EQUAL( st1.has_well_var(well, kw), st2.has_well_var(well, kw));
-            if (st1.has_well_var(well, def.keyword()))
+
+            BOOST_CHECK_EQUAL(st1.has_well_var(well, kw), st2.has_well_var(well, kw));
+
+            if (st1.has_well_var(well, def.keyword())) {
                 BOOST_CHECK_EQUAL(st1.get_well_var(well, kw), st2.get_well_var(well, kw));
+            }
         }
     }
 
     for (const auto& group : st1.groups()) {
         for (const auto& def : udq.definitions(UDQVarType::GROUP_VAR)) {
             const auto& kw = def.keyword();
+
             BOOST_CHECK_EQUAL( st1.has_group_var(group, kw), st2.has_group_var(group, kw));
-            if (st1.has_group_var(group, def.keyword()))
+
+            if (st1.has_group_var(group, def.keyword())) {
                 BOOST_CHECK_EQUAL(st1.get_group_var(group, kw), st2.get_group_var(group, kw));
+            }
         }
     }
 
     for (const auto& well : st1.wells()) {
         for (const auto& def : udq.assignments(UDQVarType::WELL_VAR)) {
             const auto& kw = def.keyword();
+
             BOOST_CHECK_EQUAL( st1.has_well_var(well, kw), st2.has_well_var(well, kw));
-            if (st1.has_well_var(well, def.keyword()))
+
+            if (st1.has_well_var(well, def.keyword())) {
                 BOOST_CHECK_EQUAL(st1.get_well_var(well, kw), st2.get_well_var(well, kw));
+            }
         }
     }
 
     for (const auto& group : st1.groups()) {
         for (const auto& def : udq.assignments(UDQVarType::GROUP_VAR)) {
             const auto& kw = def.keyword();
-            BOOST_CHECK_EQUAL( st1.has_group_var(group, kw), st2.has_group_var(group, kw));
-            if (st1.has_group_var(group, def.keyword()))
+
+            BOOST_CHECK_EQUAL(st1.has_group_var(group, kw), st2.has_group_var(group, kw));
+
+            if (st1.has_group_var(group, def.keyword())) {
                 BOOST_CHECK_EQUAL(st1.get_group_var(group, kw), st2.get_group_var(group, kw));
+            }
         }
     }
 
     for (const auto& def : udq.assignments(UDQVarType::FIELD_VAR)) {
         const auto& kw = def.keyword();
-        BOOST_CHECK_EQUAL( st1.has(kw), st2.has(kw));
-            if (st1.has(kw))
-                BOOST_CHECK_EQUAL(st1.get(kw), st2.get(kw));
+
+        BOOST_CHECK_EQUAL(st1.has(kw), st2.has(kw));
+
+        if (st1.has(kw)) {
+            BOOST_CHECK_EQUAL(st1.get(kw), st2.get(kw));
+        }
     }
 
     for (const auto& def : udq.definitions(UDQVarType::FIELD_VAR)) {
         const auto& kw = def.keyword();
-        BOOST_CHECK_EQUAL( st1.has(kw), st2.has(kw));
-        if (st1.has(kw))
+
+        BOOST_CHECK_EQUAL(st1.has(kw), st2.has(kw));
+
+        if (st1.has(kw)) {
             BOOST_CHECK_EQUAL(st1.get(kw), st2.get(kw));
+        }
     }
-}
 }
 
 namespace {
@@ -1217,7 +1273,8 @@ Opm::data::AquiferData getNumericalAquifer(const int aquiferID = 2)
 
     return aquifer;
 }
-} // Anonymous
+
+} // Anonymous namespace
 
 BOOST_AUTO_TEST_CASE(ReadWrite_CarterTracy_Data)
 {
@@ -1265,4 +1322,91 @@ BOOST_AUTO_TEST_CASE(ReadWrite_NumericalAquifer_Data)
     dest.read(buffer);
 
     BOOST_CHECK_MESSAGE(src == dest, "Serialised/deserialised Numerical aquifer object must be equal to source object");
+}
+
+namespace {
+    void checkAllEntriesAre(const double x,
+                            std::string_view arrayName,
+                            const std::vector<double>& v,
+                            const double tol = 1.0e-8)
+    {
+        auto i = 0;
+        for (const auto& vi : v) {
+            BOOST_TEST_MESSAGE(arrayName << '[' << (i++) << ']');
+            BOOST_CHECK_CLOSE(vi, x, tol);
+        }
+    }
+} // Anonymous namespace
+
+BOOST_AUTO_TEST_CASE(Fluid_In_Place)
+{
+    namespace OS = ::Opm::EclIO::OutputStream;
+
+    WorkArea test_area("test_Restart");
+    test_area.copyIn("BASE_SIM.DATA");
+
+    const Setup base_setup("BASE_SIM.DATA");
+
+    const auto num_cells = base_setup.grid.getNumActive();
+    const auto cells = mkSolutionFIP(num_cells);
+    const auto wells = mkWells();
+    const auto groups = mkGroups();
+    const auto sumState = sim_state(base_setup.schedule);
+    const auto udqState = UDQState{1};
+    auto aquiferData = std::optional<Opm::RestartIO::Helpers::AggregateAquiferData>{std::nullopt};
+    const Action::State action_state{};
+    const WellTestState wtest_state{};
+
+    const RestartValue restart_value(cells, wells, groups, {});
+
+    const auto outputDir = test_area.currentWorkingDirectory();
+
+    {
+        const auto seqnum = 1;
+
+        auto rstFile = OS::Restart {
+            OS::ResultSet{ outputDir, "BASE_SIM" }, seqnum,
+            OS::Formatted{ false }, OS::Unified{ true }
+        };
+
+        RestartIO::save(rstFile, seqnum,
+                        100,
+                        restart_value,
+                        base_setup.es,
+                        base_setup.grid,
+                        base_setup.schedule,
+                        action_state,
+                        wtest_state,
+                        sumState,
+                        udqState,
+                        aquiferData,
+                        true);
+    }
+
+    {
+        const auto rstFile = ::Opm::EclIO::OutputStream::
+            outputFileName({outputDir, "BASE_SIM"}, "UNRST");
+
+        EclIO::ERst rst{ rstFile };
+
+        BOOST_CHECK_MESSAGE(rst.hasKey("FIPOIL"), R"(Restart file must have "FIPOIL" vector)");
+        checkAllEntriesAre(10.0, "FIPOIL", rst.getRestartData<double>("FIPOIL", 1));
+
+        BOOST_CHECK_MESSAGE(rst.hasKey("FIPWAT"), R"(Restart file must have "FIPWAT" vector)");
+        checkAllEntriesAre(11.0, "FIPWAT", rst.getRestartData<double>("FIPWAT", 1));
+
+        BOOST_CHECK_MESSAGE(rst.hasKey("FIPGAS"), R"(Restart file must have "FIPGAS" vector)");
+        checkAllEntriesAre(12.0, "FIPGAS", rst.getRestartData<double>("FIPGAS", 1));
+
+        // SFIP* "alias" arrays must be present when the data::Solution
+        // object "only" provides basic FIP* result arrays.
+        BOOST_CHECK_MESSAGE(rst.hasKey("SFIPOIL"), R"(Restart file must have "SFIPOIL" vector)");
+        checkAllEntriesAre(10.0, "SFIPOIL", rst.getRestartData<double>("SFIPOIL", 1));
+
+        BOOST_CHECK_MESSAGE(rst.hasKey("SFIPWAT"), R"(Restart file must have "SFIPWAT" vector)");
+        checkAllEntriesAre(11.0, "SFIPWAT", rst.getRestartData<double>("SFIPWAT", 1));
+
+        BOOST_CHECK_MESSAGE(rst.hasKey("SFIPGAS"), R"(Restart file must have "SFIPGAS" vector)");
+        checkAllEntriesAre(12.0, "SFIPGAS", rst.getRestartData<double>("SFIPGAS", 1));
+    }
 }

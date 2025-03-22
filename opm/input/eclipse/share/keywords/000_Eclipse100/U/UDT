@@ -1,0 +1,36 @@
+{
+  "name": "UDT",
+  "sections": [
+    "SCHEDULE"
+  ],
+  "records_set" : [
+    [
+      {
+        "name" : "TABLE_NAME",
+        "value_type" : "STRING"
+      },
+      {
+        "name": "DIMENSIONS",
+        "value_type": "INT"
+      }
+    ],
+    [
+      {
+        "name": "INTERPOLATION_TYPE",
+        "value_type" : "STRING"
+      },
+      {
+        "name": "INTERPOLATION_POINTS",
+        "value_type": "DOUBLE",
+        "size_type": "ALL"
+      }
+    ],
+    [
+      {
+        "name": "TABLE_VALUES",
+        "value_type": "DOUBLE",
+        "size_type" : "ALL"
+      }
+    ]
+  ]
+}

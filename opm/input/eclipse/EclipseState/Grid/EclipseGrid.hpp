@@ -17,9 +17,10 @@
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+
+
 #ifndef OPM_PARSER_ECLIPSE_GRID_HPP
 #define OPM_PARSER_ECLIPSE_GRID_HPP
-
 #include <opm/input/eclipse/EclipseState/Grid/GridDims.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/MapAxes.hpp>
 #include <opm/input/eclipse/EclipseState/Grid/MinpvMode.hpp>
@@ -31,15 +32,21 @@
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
+#include <map>
+
 
 namespace Opm {
 
     class Deck;
-    namespace EclIO { class EclFile; }
+    namespace EclIO {
+        class EclFile;
+        class EclOutput;
+    }
     struct NNCdata;
     class UnitSystem;
     class ZcornMapper;
-
+    class EclipseGridLGR;
+    class LgrCollection;
     /**
        About cell information and dimension: The actual grid
        information is held in a pointer to an ERT ecl_grid_type
@@ -53,7 +60,7 @@ namespace Opm {
 
     class EclipseGrid : public GridDims {
     public:
-        EclipseGrid() = default;
+        EclipseGrid();
         explicit EclipseGrid(const std::string& filename);
 
         /*
@@ -64,7 +71,8 @@ namespace Opm {
         EclipseGrid(const EclipseGrid& src, const double* zcorn, const std::vector<int>& actnum);
 
         EclipseGrid(size_t nx, size_t ny, size_t nz,
-                    double dx = 1.0, double dy = 1.0, double dz = 1.0);
+                    double dx = 1.0, double dy = 1.0, double dz = 1.0,
+                    double top = 0.0);
         explicit EclipseGrid(const GridDims& gd);
 
         EclipseGrid(const std::array<int, 3>& dims ,
@@ -75,9 +83,11 @@ namespace Opm {
 
         /// EclipseGrid ignores ACTNUM in Deck, and therefore needs ACTNUM
         /// explicitly.  If a null pointer is passed, every cell is active.
-        EclipseGrid(const Deck& deck, const int * actnum = nullptr);
+        explicit EclipseGrid(const Deck& deck, const int * actnum = nullptr);
 
         static bool hasGDFILE(const Deck& deck);
+        static bool hasRadialKeywords(const Deck& deck);
+        static bool hasSpiderKeywords(const Deck& deck);
         static bool hasCylindricalKeywords(const Deck& deck);
         static bool hasCornerPointKeywords(const Deck&);
         static bool hasCartesianKeywords(const Deck&);
@@ -87,9 +97,24 @@ namespace Opm {
         size_t activeIndex(size_t i, size_t j, size_t k) const;
         size_t activeIndex(size_t globalIndex) const;
 
+        size_t getTotalActiveLGR() const;
+        size_t getActiveIndexLGR(const std::string& label, size_t i, size_t j, size_t k) const;
+        size_t getActiveIndexLGR(const std::string& label, size_t localIndex) const;
+
+        size_t activeIndexLGR(const std::string& label, size_t i, size_t j, size_t k) const;
+        size_t activeIndexLGR(const std::string& label, size_t localIndex) const;
+
         size_t getActiveIndex(size_t i, size_t j, size_t k) const {
             return activeIndex(i, j, k);
         }
+
+       size_t getActiveIndex(size_t globalIndex) const {
+            return activeIndex(globalIndex);
+        }
+
+        void assertIndexLGR(size_t localIndex) const;
+
+        void assertLabelLGR(const std::string& label) const;
 
         void save(const std::string& filename, bool formatted, const std::vector<Opm::NNCdata>& nnc, const Opm::UnitSystem& units) const;
         /*
@@ -98,8 +123,10 @@ namespace Opm {
           from an active index to a global index must be implemented
           in the current class.
         */
+        void init_children_host_cells(void);
+
+        using GridDims::getGlobalIndex;
         size_t getGlobalIndex(size_t active_index) const;
-        size_t getGlobalIndex(size_t i, size_t j, size_t k) const;
 
         /*
           For RADIAL grids you can *optionally* use the keyword
@@ -107,15 +134,14 @@ namespace Opm {
           applied in the 'THETA' direction; this will only apply if
           the theta keywords entered sum up to exactly 360 degrees!
         */
-
-        bool circle( ) const;
-        bool isPinchActive( ) const;
-        double getPinchThresholdThickness( ) const;
-        PinchMode::ModeEnum getPinchOption( ) const;
-        PinchMode::ModeEnum getMultzOption( ) const;
-        PinchMode::ModeEnum getPinchGapMode( ) const;
-
-        MinpvMode::ModeEnum getMinpvMode() const;
+        bool circle() const;
+        bool isPinchActive() const;
+        double getPinchThresholdThickness() const;
+        PinchMode getPinchOption() const;
+        PinchMode getMultzOption() const;
+        PinchMode getPinchGapMode() const;
+        double getPinchMaxEmptyGap() const;
+        MinpvMode getMinpvMode() const;
         const std::vector<double>& getMinpvVector( ) const;
 
         /*
@@ -155,6 +181,12 @@ namespace Opm {
         /// Will return a vector a length num_active; where the value
         /// of each element is the corresponding global index.
         const std::vector<int>& getActiveMap() const;
+
+        void init_lgr_cells(const LgrCollection& lgr_input); 
+        void create_lgr_cells_tree(const LgrCollection& );
+        /// \brief get cell center, and center and normal of bottom face
+        std::tuple<std::array<double, 3>,std::array<double, 3>,std::array<double, 3>>
+        getCellAndBottomCenterNormal(size_t globalIndex) const;
         std::array<double, 3> getCellCenter(size_t i,size_t j, size_t k) const;
         std::array<double, 3> getCellCenter(size_t globalIndex) const;
         std::array<double, 3> getCornerPos(size_t i,size_t j, size_t k, size_t corner_index) const;
@@ -167,6 +199,7 @@ namespace Opm {
         std::array<double, 3> getCellDims(size_t globalIndex) const;
         bool cellActive( size_t globalIndex ) const;
         bool cellActive( size_t i , size_t j, size_t k ) const;
+        bool cellActiveAfterMINPV( size_t i , size_t j , size_t k, double cell_porv ) const;
 
         std::array<double, 3> getCellDimensions(size_t i, size_t j, size_t k) const {
             return getCellDims(i, j, k);
@@ -192,6 +225,10 @@ namespace Opm {
         const std::vector<double>& getZCORN() const;
         const std::vector<int>& getACTNUM( ) const;
 
+        const std::optional<MapAxes>& getMapAxes() const;
+
+        const std::map<size_t, std::array<int,2>>& getAquiferCellTabnums() const;
+
         /*
           The fixupZCORN method is run as part of constructiong the grid. This will adjust the
           z-coordinates to ensure that cells do not overlap. The return value is the number of
@@ -207,6 +244,9 @@ namespace Opm {
         void resetACTNUM();
         void resetACTNUM( const std::vector<int>& actnum);
 
+        /// \brief Sets MINPVV if MINPV and MINPORV are not used
+        void setMINPVV(const std::vector<double>& minpvv);
+
         bool equal(const EclipseGrid& other) const;
         static bool hasDVDEPTHZKeywords(const Deck&);
 
@@ -219,47 +259,70 @@ namespace Opm {
 
         static bool hasEqualDVDEPTHZ(const Deck&);
         static bool allEqual(const std::vector<double> &v);
+        std::vector<EclipseGridLGR> lgr_children_cells;
 
-    private:
-        std::vector<double> m_minpvVector;
-        MinpvMode::ModeEnum m_minpvMode;
-        std::optional<double> m_pinch;
-        PinchMode::ModeEnum m_pinchoutMode;
-        PinchMode::ModeEnum m_multzMode;
-        PinchMode::ModeEnum m_pinchGapMode;
-
-        mutable std::optional<std::vector<double>> active_volume;
-
-        bool m_circle = false;
-
-        size_t zcorn_fixed = 0;
-        bool m_useActnumFromGdfile = false;
-
-        // Input grid data.
+    protected:
+        std::size_t lgr_global_counter = 0;
+        std::string lgr_label = "GLOBAL";
+        int lgr_level = 0;
+        int lgr_level_father = 0;
+        std::vector<std::string> lgr_children_labels;
+        std::vector<std::size_t> lgr_active_index;
+        std::vector<std::size_t> lgr_level_active_map;
+        std::vector<std::string> all_lgr_labels;
+        std::map<std::vector<std::size_t>, std::size_t> num_lgr_children_cells;        
+        std::vector<double> m_zcorn;
+        std::vector<double> m_coord;
+        std::vector<int> m_actnum;
+        std::vector<std::size_t> m_print_order_lgr_cells;
+       // Input grid data.
         mutable std::optional<std::vector<double>> m_input_zcorn;
         mutable std::optional<std::vector<double>> m_input_coord;
 
-        std::vector<double> m_zcorn;
-        std::vector<double> m_coord;
+    private:
+        std::vector<double> m_minpvVector;
+        MinpvMode m_minpvMode;
+        std::optional<double> m_pinch;
+
+        // Option 4 of PINCH (TOPBOT/ALL), how to calculate TRANS
+        PinchMode m_pinchoutMode;
+        // Option 5 of PINCH (TOP/ALL), how to apply MULTZ
+        PinchMode m_multzMode;
+        // Option 2 of PINCH (GAP/NOGAP)
+        PinchMode m_pinchGapMode;
+        double    m_pinchMaxEmptyGap;
+        bool lgr_grid = false;
+        mutable std::optional<std::vector<double>> active_volume;
+
+        bool m_circle = false;
+        size_t zcorn_fixed = 0;
+        bool m_useActnumFromGdfile = false;
 
 
-        std::vector<int> m_actnum;
         std::optional<MapAxes> m_mapaxes;
 
         // Mapping to/from active cells.
-        int m_nactive;
+        int m_nactive {};
         std::vector<int> m_active_to_global;
         std::vector<int> m_global_to_active;
         // Numerical aquifer cells, needs to be active
         std::unordered_set<size_t> m_aquifer_cells;
+        // Keep track of aquifer cell depths and (pvtnum,satnum)
+        std::map<size_t, double> m_aquifer_cell_depths;
+        std::map<size_t, std::array<int,2>> m_aquifer_cell_tabnums;
 
         // Radial grids need this for volume calculations.
         std::optional<std::vector<double>> m_thetav;
         std::optional<std::vector<double>> m_rv;
-
+        void parseGlobalReferenceToChildren(void);
+        int initializeLGRObjectIndices(int);
+        void initializeLGRTreeIndices(void);
+        void propagateParentIndicesToLGRChildren(int);
         void updateNumericalAquiferCells(const Deck&);
+        double computeCellGeometricDepth(size_t globalIndex) const;
 
-        void initGridFromEGridFile(Opm::EclIO::EclFile& egridfile, std::string fileName);
+        void initGridFromEGridFile(Opm::EclIO::EclFile& egridfile,
+                                   const std::string& fileName);
         void resetACTNUM( const int* actnum);
 
         void initBinaryGrid(const Deck& deck);
@@ -279,7 +342,7 @@ namespace Opm {
         void initGrid(const Deck&, const int* actnum);
         void initCornerPointGrid(const Deck&);
         void assertCornerPointKeywords(const Deck&);
-
+        void save_all_lgr_labels(const LgrCollection& );
         static bool hasDTOPSKeywords(const Deck&);
         static void assertVectorSize(const std::vector<double>& vector, size_t expectedSize, const std::string& msg);
 
@@ -300,6 +363,39 @@ namespace Opm {
                             std::array<double,8>& Z) const;
 
    };
+
+    class EclipseGridLGR: public EclipseGrid
+    // Specialized Class to describe LGR refined cells. 
+    {
+    public:
+      using vec_size_t = std::vector<std::size_t>;
+      EclipseGridLGR() = default;
+      EclipseGridLGR(const std::string& self_label, const std::string& father_label_, 
+                     size_t nx, size_t ny, size_t nz, 
+                     const vec_size_t& father_lgr_index, const std::array<int,3>& low_fahterIJK_, 
+                     const std::array<int,3>& up_fahterIJK_);
+      ~EclipseGridLGR() = default;
+      const vec_size_t& getFatherGlobalID() const;
+      void save(Opm::EclIO::EclOutput&, const std::vector<Opm::NNCdata>&, const Opm::UnitSystem&) const;
+      void save_nnc(Opm::EclIO::EclOutput&) const;      
+      void set_lgr_global_counter(std::size_t counter){
+        lgr_global_counter = counter;
+      }
+      const vec_size_t& get_father_global() const{
+        return father_global;
+      }
+     void set_hostnum(std::vector<int>&);
+     void set_lgr_refinement(const std::vector<double>&, const std::vector<double> &);                 
+    private:
+      void init_father_global();
+      std::string father_label;
+      // references global on the father label
+      vec_size_t father_global;
+      std::array<int,3> low_fahterIJK{};
+      std::array<int,3> up_fahterIJK{};
+      std::vector<int> m_hostnum;
+    };
+
 
     class CoordMapper {
     public:
@@ -350,5 +446,4 @@ namespace Opm {
         std::array<size_t,8> cell_shift;
     };
 }
-
 #endif // OPM_PARSER_ECLIPSE_GRID_HPP

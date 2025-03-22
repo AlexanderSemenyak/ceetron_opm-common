@@ -41,9 +41,13 @@ namespace Opm {
         bool restartRequested() const;
         int getRestartStep() const;
         const std::string& getRestartRootName() const;
+        const std::string& getRestartRootNameInput() const;
 
         bool hasEquil() const;
         const Equil& getEquil() const;
+
+        bool hasStressEquil() const;
+        const StressEquil& getStressEquil() const;
 
         bool hasGravity() const;
 
@@ -64,16 +68,19 @@ namespace Opm {
         void serializeOp(Serializer& serializer)
         {
             serializer(equil);
+            serializer(stress_equil);
             serializer(foamconfig);
             serializer(m_filleps);
             serializer(m_gravity);
             serializer(m_restartRequested);
             serializer(m_restartStep);
             serializer(m_restartRootName);
+            serializer(m_restartRootNameInput);
         }
 
     private:
         Equil equil;
+        StressEquil stress_equil;
         FoamConfig foamconfig;
         bool m_filleps;
         bool m_gravity = true;
@@ -81,6 +88,7 @@ namespace Opm {
         bool m_restartRequested = false;
         int m_restartStep = 0;
         std::string m_restartRootName;
+        std::string m_restartRootNameInput;
     };
 
 } //namespace Opm
